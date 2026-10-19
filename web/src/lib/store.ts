@@ -551,6 +551,7 @@ export const useApp = create<AppState>()(
                   chainNote: item.chainNote.replace("Held for operator acceptance.", `Operator accepted ${supplier}.`),
                   updatedAt: new Date().toISOString(),
                 }
+              : item,
           ),
           audits: [audit(actor, "request.accept-trust", `${cert.name}`, `Trusted supplier is now ${supplier}`), ...get().audits],
           toasts: [toast(`${supplier} is now the trusted supplier for ${cert.name}. The chain can be applied.`, "ok"), ...get().toasts],
