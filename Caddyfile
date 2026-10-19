@@ -1,0 +1,12 @@
+# Main UI (Entra ID) — automatic Let's Encrypt
+# Replace example.com with your real domain
+example.com {
+    reverse_proxy app:8000
+}
+
+# Local admin UI — can use internal TLS or a separate cert
+# For production you may want a second domain or self-signed
+:8443 {
+    tls internal
+    reverse_proxy app:8001
+}
