@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { defaultRequirements } from "@/lib/cert-requirements";
+import { checkReplacement } from "@/lib/cert-check";
 import { fakeCsr, isoInDays, uid } from "@/lib/format";
 import {
   seedAudits,
@@ -75,6 +76,9 @@ interface AppState extends DataSlice {
   reissueRequest: (id: string, actor: string) => void;
   cancelRequest: (id: string, actor: string) => void;
   uploadSigned: (token: string, pem: string) => string | null;
+  recordOpen: (token: string) => void;
+  updateRequest: (id: string, patch: Partial<Pick<CertRequest, "customerEmail" | "remind">>) => void;
+  sendReminder: (id: string, actor: string) => string | null;
   applyRequest: (id: string, actor: string) => string | null;
   updateProfile: (id: string, patch: Partial<ReportProfile>) => void;
   createProfile: (customerId: string) => void;
@@ -365,6 +369,13 @@ export const useApp = create<AppState>()(
           notes: notes.trim() || `Replacement for ${cert.name} (${cert.subject}).`,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
+          openCount: 0,
+          firstOpenedAt: null,
+          lastOpenedAt: null,
+          customerEmail: "",
+          remind: "us",
+          lastRemindedAt: null,
+          reminderCount: 0,
         };
         set({
           requests: [row, ...get().requests],
@@ -407,7 +418,16 @@ export const useApp = create<AppState>()(
         set({
           requests: get().requests.map((item) =>
             item.id === id
-              ? { ...item, token, tokenExpires: isoInDays(7), status: "awaiting_upload", updatedAt: new Date().toISOString() }
+              ? {
+                  ...item,
+                  token,
+                  tokenExpires: isoInDays(7),
+                  status: "awaiting_upload",
+                  updatedAt: new Date().toISOString(),
+                  openCount: 0,
+                  firstOpenedAt: null,
+                  lastOpenedAt: null,
+                }
               : item,
           ),
           audits: [audit(actor, "request.reissue", id, "Previous link revoked"), ...get().audits],
@@ -429,6 +449,12 @@ export const useApp = create<AppState>()(
         if (!row) return "This upload link is not valid.";
         if (row.status === "cancelled") return "This request was cancelled.";
         if (new Date(row.tokenExpires).getTime() < Date.now()) return "This upload link has expired.";
+        const cert =
+          get().certs.find((item) => item.id === row.certId) ??
+          get().certs.find((item) => item.deviceId === row.deviceId && item.name === row.certName);
+        if (!cert) return "The trunk this link replaces is no longer in inventory.";
+        const result = checkReplacement(pem, cert);
+        if (!result.ok) return result.checks.filter((item) => !item.ok).map((item) => item.text).join(" ");
         set({
           requests: get().requests.map((item) =>
             item.id === row.id
@@ -436,6 +462,57 @@ export const useApp = create<AppState>()(
               : item,
           ),
           audits: [audit("customer-upload", "request.upload", row.certName, "Signed certificate received"), ...get().audits],
+        });
+        return null;
+      },
+
+      recordOpen: (token) => {
+        const row = get().requests.find((item) => item.token === token);
+        if (!row || row.status === "cancelled") return;
+        const now = Date.now();
+        if (row.lastOpenedAt && now - new Date(row.lastOpenedAt).getTime() < 5000) return;
+        const at = new Date().toISOString();
+        set({
+          requests: get().requests.map((item) =>
+            item.id === row.id
+              ? {
+                  ...item,
+                  openCount: (item.openCount ?? 0) + 1,
+                  firstOpenedAt: item.firstOpenedAt ?? at,
+                  lastOpenedAt: at,
+                }
+              : item,
+          ),
+          audits: [audit("customer", "request.open", `${row.certName}`, "Customer opened the upload link"), ...get().audits],
+        });
+      },
+
+      updateRequest: (id, patch) => {
+        set({
+          requests: get().requests.map((item) => (item.id === id ? { ...item, ...patch, updatedAt: new Date().toISOString() } : item)),
+        });
+      },
+
+      sendReminder: (id, actor) => {
+        const row = get().requests.find((item) => item.id === id);
+        if (!row) return "Request not found.";
+        const remind = row.remind ?? "us";
+        if ((remind === "customer" || remind === "both") && !row.customerEmail?.trim()) {
+          return "Add the customer email before reminding them.";
+        }
+        const seen = (row.openCount ?? 0) > 0;
+        const who = remind === "us" ? "operators" : remind === "customer" ? row.customerEmail : `operators and ${row.customerEmail}`;
+        const detail = seen
+          ? `Customer opened the link ${row.openCount} time(s). Last ${row.lastOpenedAt}.`
+          : "Customer has not opened the link.";
+        set({
+          requests: get().requests.map((item) =>
+            item.id === id
+              ? { ...item, reminderCount: (item.reminderCount ?? 0) + 1, lastRemindedAt: new Date().toISOString() }
+              : item,
+          ),
+          audits: [audit(actor, "request.remind", row.certName, `${who}. ${detail}`), ...get().audits],
+          toasts: [toast(`Reminder sent to ${who}. ${detail}`, seen ? "ok" : "warn"), ...get().toasts],
         });
         return null;
       },

@@ -124,6 +124,13 @@ export interface CertRequest {
   notes: string;
   createdAt: string;
   updatedAt: string;
+  openCount: number;
+  firstOpenedAt: string | null;
+  lastOpenedAt: string | null;
+  customerEmail: string;
+  remind: "us" | "customer" | "both";
+  lastRemindedAt: string | null;
+  reminderCount: number;
 }
 
 export interface ReportProfile {

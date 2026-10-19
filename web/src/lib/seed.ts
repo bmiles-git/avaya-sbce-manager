@@ -283,6 +283,13 @@ export const seedRequests: CertRequest[] = [
     notes: "Customer PKI team signs the remote-worker server certificate.",
     createdAt: isoInDays(-1),
     updatedAt: isoInDays(-1),
+    openCount: 0,
+    firstOpenedAt: null,
+    lastOpenedAt: null,
+    customerEmail: "pki@harbor.example",
+    remind: "both",
+    lastRemindedAt: null,
+    reminderCount: 0,
   },
 ];
 

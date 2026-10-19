@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { formatDay } from "@/lib/format";
+import { buildSamplePem } from "@/lib/cert-check";
+import { formatDay, formatWhen } from "@/lib/format";
 import { devicesFor } from "@/lib/scope";
 import { useApp } from "@/lib/store";
 import { Button, Field, inputClass, Panel, Pill } from "@/components/ui";
@@ -20,6 +21,8 @@ export function Requests() {
   const reissueRequest = useApp((s) => s.reissueRequest);
   const cancelRequest = useApp((s) => s.cancelRequest);
   const applyRequest = useApp((s) => s.applyRequest);
+  const updateRequest = useApp((s) => s.updateRequest);
+  const sendReminder = useApp((s) => s.sendReminder);
   const actor = useApp((s) => s.session?.name ?? "admin");
   const admin = useApp((s) => s.session?.role === "admin");
   const [certId, setCertId] = useState("");
@@ -108,6 +111,36 @@ export function Requests() {
               <p className="mt-1 text-sm text-muted">
                 Link expires {formatDay(req.tokenExpires)}. {req.notes}
               </p>
+              <p className="mt-2 text-sm">
+                {(req.openCount ?? 0) === 0
+                  ? "Customer has not opened this link."
+                  : `Customer opened it ${req.openCount} time${req.openCount === 1 ? "" : "s"}. First ${formatWhen(req.firstOpenedAt ?? req.updatedAt)}, last ${formatWhen(req.lastOpenedAt ?? req.updatedAt)}.`}
+              </p>
+              {(req.reminderCount ?? 0) > 0 && req.lastRemindedAt ? (
+                <p className="text-xs text-muted">Last reminder {formatWhen(req.lastRemindedAt)} · {req.reminderCount} sent.</p>
+              ) : null}
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <Field label="Customer email">
+                  <input
+                    className={inputClass}
+                    value={req.customerEmail ?? ""}
+                    disabled={!admin}
+                    onChange={(e) => updateRequest(req.id, { customerEmail: e.target.value })}
+                  />
+                </Field>
+                <Field label="Remind">
+                  <select
+                    className={inputClass}
+                    value={req.remind ?? "us"}
+                    disabled={!admin}
+                    onChange={(e) => updateRequest(req.id, { remind: e.target.value as "us" | "customer" | "both" })}
+                  >
+                    <option value="us">Us only</option>
+                    <option value="customer">Customer only</option>
+                    <option value="both">Us and the customer</option>
+                  </select>
+                </Field>
+              </div>
               <pre className="mt-3 max-h-28 overflow-auto rounded-md bg-bg p-3 font-mono text-xs text-muted">{req.csrPem}</pre>
               {req.signedPem ? (
                 <p className="mt-2 text-xs text-ok">Signed certificate is on file ({req.signedPem.length} characters).</p>
@@ -131,6 +164,32 @@ export function Requests() {
                   }}
                 >
                   Open guest link
+                </Button>
+                <Button
+                  tone="ghost"
+                  disabled={!admin || !cert}
+                  onClick={async () => {
+                    if (!cert) return;
+                    const cn = cert.subject.match(/CN=([^,/]+)/i)?.[1]?.trim() ?? cert.subject;
+                    const key = cert.requirements?.keyAlgorithm.startsWith("ECDSA") ? "ECDSA" : "RSA";
+                    const sans = cert.sans.length ? cert.sans : [cert.requirements?.fqdn ?? cn].filter(Boolean);
+                    await navigator.clipboard.writeText(buildSamplePem({ cn, sans, key }));
+                    setCopied(req.id);
+                    setError(null);
+                  }}
+                >
+                  Copy passing test cert
+                </Button>
+                <Button
+                  tone="ghost"
+                  disabled={!admin}
+                  onClick={() => {
+                    const message = sendReminder(req.id, actor);
+                    setCopied(req.id);
+                    setError(message);
+                  }}
+                >
+                  Send reminder
                 </Button>
                 <Button tone="ghost" disabled={!admin} onClick={() => extendRequest(req.id, actor)}>
                   Extend 7 days
