@@ -1,0 +1,246 @@
+import { isoInDays } from "@/lib/format";
+import type {
+  AuditEvent,
+  Certificate,
+  CertRequest,
+  ChannelMessage,
+  Customer,
+  Device,
+  ReportProfile,
+  Site,
+  Snapshot,
+} from "@/lib/types";
+
+export const seedCustomers: Customer[] = [
+  { id: "c_umcsn", name: "UMCSN", code: "UMCSN", locale: "en-US", timezone: "America/Los_Angeles" },
+  { id: "c_harbor", name: "Harbor Health", code: "HBR", locale: "en-US", timezone: "America/Chicago" },
+  { id: "c_north", name: "Northline Transit", code: "NLT", locale: "en-US", timezone: "America/Denver" },
+];
+
+export const seedSites: Site[] = [
+  { id: "s_hdc", customerId: "c_umcsn", name: "HDC", location: "Henderson, NV", timezone: "America/Los_Angeles" },
+  { id: "s_sdc", customerId: "c_umcsn", name: "SDC", location: "Las Vegas, NV", timezone: "America/Los_Angeles" },
+  { id: "s_harbor", customerId: "c_harbor", name: "Main campus", location: "Portland, OR", timezone: "America/Los_Angeles" },
+  { id: "s_north", customerId: "c_north", name: "Ops center", location: "Denver, CO", timezone: "America/Denver" },
+];
+
+export const seedDevices: Device[] = [
+  {
+    id: "d_a1",
+    siteId: "s_hdc",
+    name: "UMCSN-SBCE-A1",
+    endpoint: "10.40.8.21",
+    role: "ha-active",
+    haPairId: "ha_umcsn",
+    locked: false,
+    maintenance: false,
+    tags: ["production", "sip-trunk"],
+    access: "customer-vpn",
+    apiUser: "api-cert",
+  },
+  {
+    id: "d_b1",
+    siteId: "s_sdc",
+    name: "UMCSN-SBCE-B1",
+    endpoint: "10.40.18.21",
+    role: "ha-standby",
+    haPairId: "ha_umcsn",
+    locked: false,
+    maintenance: false,
+    tags: ["production", "sip-trunk"],
+    access: "customer-vpn",
+    apiUser: "api-cert",
+  },
+  {
+    id: "d_ems",
+    siteId: "s_hdc",
+    name: "UMCSN-EMS",
+    endpoint: "10.40.8.10",
+    role: "ems",
+    haPairId: null,
+    locked: true,
+    maintenance: false,
+    tags: ["management"],
+    access: "tunnel",
+    apiUser: "api-read",
+  },
+  {
+    id: "d_hbr",
+    siteId: "s_harbor",
+    name: "HBR-SBCE-01",
+    endpoint: "172.16.4.15",
+    role: "standalone",
+    haPairId: null,
+    locked: false,
+    maintenance: false,
+    tags: ["remote-worker"],
+    access: "public",
+    apiUser: "api-cert",
+  },
+  {
+    id: "d_nlt",
+    siteId: "s_north",
+    name: "NLT-SBCE-01",
+    endpoint: "10.88.2.40",
+    role: "standalone",
+    haPairId: null,
+    locked: false,
+    maintenance: true,
+    tags: ["itsp", "genesis"],
+    access: "tunnel",
+    apiUser: "api-cert",
+  },
+];
+
+export const seedCerts: Certificate[] = [
+  {
+    id: "cert_a1_pub",
+    deviceId: "d_a1",
+    name: "trunk-genesis",
+    kind: "identity",
+    subject: "CN=sbc-a1.umcsn.example",
+    sans: ["sbc-a1.umcsn.example", "sip.umcsn.example"],
+    notAfter: isoInDays(12),
+    tlsProfiles: ["TLS-Trunk-Genesis", "TLS-Trunk-Infinity"],
+    autoRenew: true,
+  },
+  {
+    id: "cert_a1_rw",
+    deviceId: "d_a1",
+    name: "remote-workers",
+    kind: "identity",
+    subject: "CN=rw.umcsn.example",
+    sans: ["rw.umcsn.example"],
+    notAfter: isoInDays(64),
+    tlsProfiles: ["TLS-Remote-Worker"],
+    autoRenew: false,
+  },
+  {
+    id: "cert_b1_pub",
+    deviceId: "d_b1",
+    name: "trunk-genesis",
+    kind: "identity",
+    subject: "CN=sbc-b1.umcsn.example",
+    sans: ["sbc-b1.umcsn.example"],
+    notAfter: isoInDays(4),
+    tlsProfiles: ["TLS-Trunk-Genesis"],
+    autoRenew: true,
+  },
+  {
+    id: "cert_ems",
+    deviceId: "d_ems",
+    name: "ems-gui",
+    kind: "identity",
+    subject: "CN=ems.umcsn.example",
+    sans: ["ems.umcsn.example"],
+    notAfter: isoInDays(140),
+    tlsProfiles: ["TLS-Mgmt"],
+    autoRenew: false,
+  },
+  {
+    id: "cert_hbr",
+    deviceId: "d_hbr",
+    name: "remote-workers",
+    kind: "identity",
+    subject: "CN=rw.harbor.example",
+    sans: ["rw.harbor.example"],
+    notAfter: isoInDays(21),
+    tlsProfiles: ["TLS-RW-Server"],
+    autoRenew: true,
+  },
+  {
+    id: "cert_nlt",
+    deviceId: "d_nlt",
+    name: "trunk-nice",
+    kind: "identity",
+    subject: "CN=sbc.northline.example",
+    sans: ["sbc.northline.example"],
+    notAfter: isoInDays(2),
+    tlsProfiles: ["TLS-Nice", "TLS-Infinity"],
+    autoRenew: false,
+  },
+  {
+    id: "cert_ca",
+    deviceId: "d_a1",
+    name: "customer-root",
+    kind: "ca",
+    subject: "CN=UMCSN Root CA",
+    sans: [],
+    notAfter: isoInDays(400),
+    tlsProfiles: [],
+    autoRenew: false,
+  },
+];
+
+export const seedSnapshots: Snapshot[] = [
+  {
+    id: "snap_1",
+    deviceId: "d_a1",
+    label: "known good",
+    trigger: "manual",
+    createdAt: isoInDays(-12),
+    summary: "Networks, TLS profiles, SIP servers, 62 entity links",
+    knownGood: true,
+  },
+  {
+    id: "snap_2",
+    deviceId: "d_b1",
+    label: "pre-trunk change",
+    trigger: "pre-change",
+    createdAt: isoInDays(-3),
+    summary: "Standby captured before TLS profile edit",
+    knownGood: false,
+  },
+];
+
+export const seedRequests: CertRequest[] = [
+  {
+    id: "req_1",
+    deviceId: "d_hbr",
+    certName: "remote-workers",
+    status: "awaiting_upload",
+    csrPem:
+      "-----BEGIN CERTIFICATE REQUEST-----\nMIICdemoCSRHarborRemoteWorkersOnlyForPreviewTesting\n-----END CERTIFICATE REQUEST-----\n",
+    signedPem: "",
+    token: "upl_harbor_demo",
+    tokenExpires: isoInDays(6),
+    notes: "Customer PKI team signs the remote-worker server certificate.",
+    createdAt: isoInDays(-1),
+    updatedAt: isoInDays(-1),
+  },
+];
+
+export const seedProfiles: ReportProfile[] = [
+  {
+    id: "rp_ops",
+    name: "Operations digest",
+    warnDays: 30,
+    criticalDays: 7,
+    teamsChannel: "SBCE Operations / Certificate Alerts",
+    emailTo: "voice-ops@example.com",
+    quietHours: true,
+    template:
+      "{{severity}} · {{customer.name}} / {{site.name}}\n{{device.name}} certificate {{cert.name}} expires {{cert.expires}} ({{cert.days_remaining}} days).\nProfiles: {{tls_profiles}}",
+  },
+];
+
+export const seedAudits: AuditEvent[] = [
+  {
+    id: "aud_1",
+    at: isoInDays(-2),
+    actor: "system",
+    action: "inventory.sync",
+    target: "UMCSN-SBCE-A1",
+    detail: "Listed 3 certificates via Configuration API",
+  },
+  {
+    id: "aud_2",
+    at: isoInDays(-1),
+    actor: "Bryan Miles",
+    action: "request.sent",
+    target: "HBR-SBCE-01 / remote-workers",
+    detail: "Temporary upload link issued for 7 days",
+  },
+];
+
+export const seedMessages: ChannelMessage[] = [];

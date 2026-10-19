@@ -4,6 +4,8 @@ Dockerized management plane for Avaya Session Border Controller for Enterprise (
 
 Focused on safe certificate lifecycle automation, configuration snapshots, multi-customer organization, and proactive expiration reporting.
 
+The clickable console (Gage Technologies branding, simulated SBCE calls for testing) lives in [`web/`](web/). The Docker service in this directory is the management plane that talks to real EMS/SBCE hosts.
+
 ## v1 Scope
 
 - Dual-auth web UI (Entra ID on :443, local admin on :8443)
