@@ -6,12 +6,14 @@ Replace `sbce.example.com` and `10.40.8.10` below with the console's public name
 
 ## Install Docker
 
+The image is built from a git checkout on the host. Docker does not download the source.
+
 Rocky, RHEL, or Alma:
 
 ```bash
-sudo dnf -y install wget tar
-wget -qO /tmp/get-docker.sh https://get.docker.com
-sudo sh /tmp/get-docker.sh
+sudo dnf -y install git dnf-plugins-core
+sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo dnf -y install docker-ce docker-ce-cli containerd.io docker-compose-plugin
 sudo systemctl enable --now docker
 docker version
 docker compose version
@@ -21,28 +23,34 @@ Ubuntu or Debian:
 
 ```bash
 sudo apt-get update
-sudo apt-get -y install wget tar ca-certificates
-wget -qO /tmp/get-docker.sh https://get.docker.com
-sudo sh /tmp/get-docker.sh
+sudo apt-get -y install git ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+sudo apt-get -y install docker-ce docker-ce-cli containerd.io docker-compose-plugin
 sudo systemctl enable --now docker
 docker version
 docker compose version
 ```
 
-## Fetch the app
+On Debian, change `ubuntu` in the repository line to `debian`.
+
+## Clone
 
 ```bash
-cd /opt
-sudo wget -O avaya-sbce-manager.tar.gz https://github.com/bmiles-git/avaya-sbce-manager/archive/refs/heads/main.tar.gz
-sudo tar -xzf avaya-sbce-manager.tar.gz
-sudo mv avaya-sbce-manager-main avaya-sbce-manager
+sudo git clone https://github.com/bmiles-git/avaya-sbce-manager.git /opt/avaya-sbce-manager
 cd /opt/avaya-sbce-manager
+sudo git checkout main
 sudo sed -i 's/example.com/sbce.example.com/' Caddyfile
 ```
 
 Point a DNS A or AAAA record for `sbce.example.com` at this host before the next step. Let's Encrypt will not issue a certificate without it.
 
 ## Docker
+
+`docker compose build` uses the checkout in `/opt/avaya-sbce-manager`. The Dockerfile copies that directory. It does not clone or download the app again.
 
 ```bash
 cd /opt/avaya-sbce-manager
@@ -54,21 +62,32 @@ sudo docker compose logs -f caddy
 
 Leave the log with Ctrl-C. The containers keep running.
 
+Update from git, then rebuild:
+
+```bash
+cd /opt/avaya-sbce-manager
+sudo git pull --ff-only
+sudo docker compose up -d --build
+```
+
+Other commands:
+
 ```bash
 sudo docker compose restart
-sudo docker compose pull
-sudo docker compose up -d --build
+sudo docker compose logs -f web
 sudo docker compose down
 ```
 
 `down` stops the site. It does not delete the Caddy certificate volume. `sudo docker compose down -v` does, and the next start asks Let's Encrypt again.
 
-Check the public listener:
+Check the listeners:
 
 ```bash
-wget -S -O /dev/null https://sbce.example.com
-wget -S -O /dev/null https://sbce.example.com:8443
+curl -fsSI https://sbce.example.com
+curl -kfsSI https://sbce.example.com:8443
 ```
+
+`-k` is only for 8443, because that listener uses Caddy's internal certificate.
 
 - `https://sbce.example.com` is the public console (port 443).
 - `https://sbce.example.com:8443` is the local-account listener.
