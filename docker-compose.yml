@@ -1,9 +1,23 @@
 services:
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8443:8443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+    depends_on:
+      - app
+
   app:
     build: .
-    ports:
-      - "443:8000"
-      - "8443:8001"
+    expose:
+      - "8000"
+      - "8001"
     volumes:
       - ./data:/app/data
       - .:/app
@@ -12,3 +26,7 @@ services:
       - SECRET_KEY=change-me-in-production
       - ENCRYPTION_KEY=change-me-in-production-32bytes!!
     restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
