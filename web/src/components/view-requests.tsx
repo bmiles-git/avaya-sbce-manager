@@ -128,21 +128,18 @@ export function Requests() {
             >
               <p className="text-sm">
                 {cert?.subject ?? req.certName}
-                {cert?.sans.length ? ` · SAN ${cert.sans.join(", ")}` : ""}
+                {cert?.sans.length ? ` · ${cert.sans.join(", ")}` : ""}
               </p>
               <p className="mt-1 text-sm text-muted">
-                Link expires {formatDay(req.tokenExpires)}. {req.notes}
-              </p>
-              <p className="mt-2 text-sm">
                 {(req.openCount ?? 0) === 0
-                  ? "Customer has not opened this link."
-                  : `Customer opened it ${req.openCount} time${req.openCount === 1 ? "" : "s"}. First ${formatWhen(req.firstOpenedAt ?? req.updatedAt)}, last ${formatWhen(req.lastOpenedAt ?? req.updatedAt)}.`}
+                  ? "Not opened yet."
+                  : `Opened ${req.openCount} time${req.openCount === 1 ? "" : "s"}, last ${formatWhen(req.lastOpenedAt ?? req.updatedAt)}.`}
+                {" "}Link good through {formatDay(req.tokenExpires)}.
               </p>
               {req.chainNote ? <p className="mt-2 text-sm">{req.chainNote}</p> : null}
-              {(req.reminderCount ?? 0) > 0 && req.lastRemindedAt ? (
-                <p className="text-xs text-muted">Last reminder {formatWhen(req.lastRemindedAt)} · {req.reminderCount} sent.</p>
-              ) : null}
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              {req.notes ? <p className="mt-1 text-sm text-muted">{req.notes}</p> : null}
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
                 <Field label="Customer email">
                   <input
                     className={inputClass}
@@ -151,118 +148,116 @@ export function Requests() {
                     onChange={(e) => updateRequest(req.id, { customerEmail: e.target.value })}
                   />
                 </Field>
-                <Field label="Remind">
+                <Field label="If they have not opened it, remind">
                   <select
                     className={inputClass}
                     value={req.remind ?? "us"}
                     disabled={!admin}
                     onChange={(e) => updateRequest(req.id, { remind: e.target.value as "us" | "customer" | "both" })}
                   >
-                    <option value="us">Us only</option>
-                    <option value="customer">Customer only</option>
-                    <option value="both">Us and the customer</option>
+                    <option value="us">Us</option>
+                    <option value="customer">The customer</option>
+                    <option value="both">Both</option>
                   </select>
                 </Field>
               </div>
-              <pre className="mt-3 max-h-28 overflow-auto rounded-md bg-bg p-3 font-mono text-xs text-muted">{req.csrPem}</pre>
-              {req.signedPem ? (
-                <p className="mt-2 text-xs text-ok">Signed certificate is on file ({req.signedPem.length} characters).</p>
+              {(req.reminderCount ?? 0) > 0 && req.lastRemindedAt ? (
+                <p className="mt-1 text-xs text-muted">Last reminder {formatWhen(req.lastRemindedAt)}.</p>
               ) : null}
-              {error && copied === req.id ? <p className="mt-2 text-sm text-danger">{error}</p> : null}
-              <div className="mt-3 flex flex-wrap gap-2">
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                {req.status === "chain_review" ? (
+                  <Button tone="primary" disabled={!admin} onClick={() => setError(acceptTrust(req.id, actor))}>
+                    Accept new root
+                  </Button>
+                ) : null}
+                {req.status === "uploaded" ? (
+                  <Button tone="primary" disabled={!admin} onClick={() => setError(applyRequest(req.id, actor))}>
+                    Install on the SBCE
+                  </Button>
+                ) : null}
+                <Button
+                  disabled={!admin}
+                  onClick={() => {
+                    setCopied(req.id);
+                    setError(sendReminder(req.id, actor));
+                  }}
+                >
+                  Send reminder
+                </Button>
                 <Button
                   tone="ghost"
                   onClick={async () => {
-                    await navigator.clipboard.writeText(req.csrPem);
+                    await navigator.clipboard.writeText(link);
                     setCopied(req.id);
                   }}
                 >
-                  Copy CSR
+                  {copied === req.id ? "Link copied" : "Copy customer link"}
                 </Button>
                 <Button
+                  tone="ghost"
                   disabled={!admin || !openStatuses.has(req.status)}
                   onClick={() => {
                     markSent(req.id, actor);
                     window.location.hash = `#/upload/${req.token}`;
                   }}
                 >
-                  Open guest link
-                </Button>
-                <Button
-                  tone="ghost"
-                  disabled={!admin || !cert}
-                  onClick={async () => {
-                    if (!cert) return;
-                    const cn = cert.subject.match(/CN=([^,/]+)/i)?.[1]?.trim() ?? cert.subject;
-                    const key = cert.requirements?.keyAlgorithm.startsWith("ECDSA") ? "ECDSA" : "RSA";
-                    const sans = cert.sans.length ? cert.sans : [cert.requirements?.fqdn ?? cn].filter(Boolean);
-                    const supplier = cert.requirements?.issuer || "DigiCert";
-                    await navigator.clipboard.writeText(buildSampleChain({ cn, sans, key, supplier }));
-                    setCopied(req.id);
-                    setError(null);
-                  }}
-                >
-                  Copy same-supplier chain
-                </Button>
-                <Button
-                  tone="ghost"
-                  disabled={!admin || !cert}
-                  onClick={async () => {
-                    if (!cert) return;
-                    const cn = cert.subject.match(/CN=([^,/]+)/i)?.[1]?.trim() ?? cert.subject;
-                    const key = cert.requirements?.keyAlgorithm.startsWith("ECDSA") ? "ECDSA" : "RSA";
-                    const sans = cert.sans.length ? cert.sans : [cert.requirements?.fqdn ?? cn].filter(Boolean);
-                    await navigator.clipboard.writeText(buildSampleChain({ cn, sans, key, supplier: "Sectigo" }));
-                    setCopied(req.id);
-                    setError(null);
-                  }}
-                >
-                  Copy new-supplier chain
-                </Button>
-                <Button
-                  tone="ghost"
-                  disabled={!admin}
-                  onClick={() => {
-                    const message = sendReminder(req.id, actor);
-                    setCopied(req.id);
-                    setError(message);
-                  }}
-                >
-                  Send reminder
-                </Button>
-                <Button tone="ghost" disabled={!admin} onClick={() => extendRequest(req.id, actor)}>
-                  Extend 7 days
-                </Button>
-                <Button tone="ghost" disabled={!admin} onClick={() => reissueRequest(req.id, actor)}>
-                  Reissue link
-                </Button>
-                <Button
-                  disabled={!admin || req.status !== "chain_review"}
-                  tone="primary"
-                  onClick={() => {
-                    const message = acceptTrust(req.id, actor);
-                    setCopied(req.id);
-                    setError(message);
-                  }}
-                >
-                  Accept new root
-                </Button>
-                <Button
-                  disabled={!admin || req.status !== "uploaded"}
-                  tone="primary"
-                  onClick={() => {
-                    const message = applyRequest(req.id, actor);
-                    setCopied(req.id);
-                    setError(message);
-                  }}
-                >
-                  Apply to SBCE
-                </Button>
-                <Button tone="danger" disabled={!admin || req.status === "cancelled" || req.status === "completed"} onClick={() => cancelRequest(req.id, actor)}>
-                  Cancel
+                  Preview
                 </Button>
               </div>
-              <p className="mt-2 break-all font-mono text-xs text-muted">{link}</p>
+              {error && copied === req.id ? <p className="mt-2 text-sm text-danger">{error}</p> : null}
+
+              <details className="mt-4">
+                <summary className="cursor-pointer text-sm text-muted">CSR and test files</summary>
+                <pre className="mt-2 max-h-28 overflow-auto rounded-md bg-bg p-3 font-mono text-xs">{req.csrPem || "No CSR. This was a managed renewal."}</pre>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button tone="ghost" disabled={!req.csrPem} onClick={() => navigator.clipboard.writeText(req.csrPem)}>
+                    Copy CSR
+                  </Button>
+                  <Button
+                    tone="ghost"
+                    disabled={!cert}
+                    onClick={async () => {
+                      if (!cert) return;
+                      const cn = cert.subject.match(/CN=([^,/]+)/i)?.[1]?.trim() ?? cert.subject;
+                      const key = cert.requirements?.keyAlgorithm.startsWith("ECDSA") ? "ECDSA" : "RSA";
+                      const sans = cert.sans.length ? cert.sans : [cert.requirements?.fqdn ?? cn].filter(Boolean);
+                      await navigator.clipboard.writeText(buildSampleChain({ cn, sans, key, supplier: cert.requirements?.issuer || "DigiCert" }));
+                    }}
+                  >
+                    Copy matching chain
+                  </Button>
+                  <Button
+                    tone="ghost"
+                    disabled={!cert}
+                    onClick={async () => {
+                      if (!cert) return;
+                      const cn = cert.subject.match(/CN=([^,/]+)/i)?.[1]?.trim() ?? cert.subject;
+                      const key = cert.requirements?.keyAlgorithm.startsWith("ECDSA") ? "ECDSA" : "RSA";
+                      const sans = cert.sans.length ? cert.sans : [cert.requirements?.fqdn ?? cn].filter(Boolean);
+                      await navigator.clipboard.writeText(buildSampleChain({ cn, sans, key, supplier: "Sectigo" }));
+                    }}
+                  >
+                    Copy chain from another CA
+                  </Button>
+                </div>
+              </details>
+              <div className="mt-3 flex gap-4 text-sm">
+                <button type="button" className="text-muted disabled:opacity-40" disabled={!admin} onClick={() => extendRequest(req.id, actor)}>
+                  Extend 7 days
+                </button>
+                <button type="button" className="text-muted disabled:opacity-40" disabled={!admin} onClick={() => reissueRequest(req.id, actor)}>
+                  New link
+                </button>
+                <button
+                  type="button"
+                  className="text-danger disabled:opacity-40"
+                  disabled={!admin || req.status === "cancelled" || req.status === "completed"}
+                  onClick={() => cancelRequest(req.id, actor)}
+                >
+                  Cancel
+                </button>
+              </div>
             </Panel>
           );
         })}
