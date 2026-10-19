@@ -16,6 +16,7 @@ export function Requests() {
   const focusRequestId = useApp((s) => s.focusRequestId);
   const devices = devicesFor(sites, allDevices, customerId);
   const createRequest = useApp((s) => s.createRequest);
+  const renewManaged = useApp((s) => s.renewManaged);
   const markSent = useApp((s) => s.markSent);
   const extendRequest = useApp((s) => s.extendRequest);
   const reissueRequest = useApp((s) => s.reissueRequest);
@@ -81,13 +82,30 @@ export function Requests() {
                 {selectedDevice?.locked ? <p className="text-danger">This device is locked.</p> : null}
               </dl>
             ) : null}
+            {selected?.issuance === "managed-acme" ? (
+              <div className="space-y-2 text-sm">
+                <p>This trunk is managed with Let's Encrypt over DNS-01. There is no customer CSR.</p>
+                <p className="text-xs text-muted">A new intermediate under ISRG Root X1 installs with the leaf. A different root still waits for acceptance.</p>
+                <Button
+                  tone="primary"
+                  type="button"
+                  disabled={!admin || selectedDevice?.locked}
+                  onClick={() => setError(renewManaged(selected.id, actor))}
+                >
+                  Renew now
+                </Button>
+              </div>
+            ) : (
+              <>
             <Field label="Note to the customer PKI admin">
               <textarea className={inputClass} rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional. Included with the CSR." />
             </Field>
-            {error ? <p className="text-sm text-danger">{error}</p> : null}
             <Button tone="primary" type="submit" disabled={!admin || !certIdSafe || selectedDevice?.locked}>
               Generate sample CSR
             </Button>
+              </>
+            )}
+            {error ? <p className="text-sm text-danger">{error}</p> : null}
           </form>
         )}
       </Panel>

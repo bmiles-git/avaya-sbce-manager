@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { defaultRequirements } from "@/lib/cert-requirements";
-import { checkReplacement } from "@/lib/cert-check";
+import { blankAcme, buildManagedChain, checkReplacement } from "@/lib/cert-check";
 import { fakeCsr, isoInDays, uid } from "@/lib/format";
 import {
   seedAudits,
@@ -16,6 +16,7 @@ import {
   defaultTemplate,
 } from "@/lib/seed";
 import type {
+  AcmeConfig,
   AuditEvent,
   Certificate,
   CertRequest,
@@ -67,7 +68,11 @@ interface AppState extends DataSlice {
   toggleMaintenance: (id: string) => void;
   setAccess: (id: string, access: Device["access"], endpoint: string) => void;
   renewCert: (certId: string, actor: string, sequentialHa: boolean) => string | null;
-  updateCert: (certId: string, patch: Partial<Pick<Certificate, "subject" | "sans">> & { requirements?: Partial<CertRequirements> }) => void;
+  renewManaged: (certId: string, actor: string) => string | null;
+  updateCert: (
+    certId: string,
+    patch: Partial<Pick<Certificate, "subject" | "sans" | "issuance">> & { requirements?: Partial<CertRequirements>; acme?: Partial<AcmeConfig> },
+  ) => void;
   restoreSnapshot: (snapshotId: string, actor: string) => string | null;
   labelSnapshot: (snapshotId: string) => void;
   createRequest: (certId: string, notes: string, actor: string) => string | null;
@@ -309,6 +314,48 @@ export const useApp = create<AppState>()(
         return null;
       },
 
+      renewManaged: (certId, actor) => {
+        const cert = get().certs.find((item) => item.id === certId);
+        const device = cert && get().devices.find((item) => item.id === cert.deviceId);
+        if (!cert || !device) return "Certificate not found.";
+        if (cert.kind !== "identity") return "Only an identity certificate is issued this way.";
+        if (cert.issuance !== "managed-acme") return "This trunk uses the customer CA. Generate a CSR instead.";
+        if (device.locked) return `${device.name} is locked.`;
+        if (device.maintenance) return `${device.name} is in maintenance mode.`;
+        if (!cert.requirements?.fqdn) return "Set the public FQDN before a DNS-01 renewal.";
+        const pem = buildManagedChain(cert);
+        const result = checkReplacement(pem, cert);
+        if (!result.ok) return result.checks.filter((item) => !item.ok).map((item) => item.text).join(" ");
+        const row: CertRequest = {
+          id: uid("req"),
+          deviceId: device.id,
+          certId: cert.id,
+          certName: cert.name,
+          status: result.trustChange ? "chain_review" : "uploaded",
+          csrPem: "",
+          signedPem: pem,
+          token: uid("upl"),
+          tokenExpires: isoInDays(7),
+          notes: "Let's Encrypt DNS-01 renewal. HTTP-01 is not used.",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          openCount: 0,
+          firstOpenedAt: null,
+          lastOpenedAt: null,
+          customerEmail: "",
+          remind: "us",
+          lastRemindedAt: null,
+          reminderCount: 0,
+          chainNote: result.chainNote,
+        };
+        set({
+          requests: [row, ...get().requests],
+          audits: [audit(actor, "acme.issue", `${device.name} / ${cert.name}`, result.chainNote), ...get().audits],
+        });
+        if (result.trustChange) return "The root is not a known Let's Encrypt root. It is held until you accept it.";
+        return get().applyRequest(row.id, actor);
+      },
+
       updateCert: (certId, patch) => {
         set({
           certs: get().certs.map((item) => {
@@ -317,6 +364,8 @@ export const useApp = create<AppState>()(
               ...item,
               subject: patch.subject ?? item.subject,
               sans: patch.sans ?? item.sans,
+              issuance: patch.issuance ?? item.issuance ?? "customer-ca",
+              acme: { ...(item.acme ?? blankAcme(item.id)), ...patch.acme },
               requirements: { ...(item.requirements ?? defaultRequirements(item)), ...patch.requirements },
             };
           }),
@@ -348,6 +397,7 @@ export const useApp = create<AppState>()(
         const device = cert && get().devices.find((item) => item.id === cert.deviceId);
         const site = device && get().sites.find((item) => item.id === device.siteId);
         if (!cert || !device) return "That trunk is not in the inventory.";
+        if (cert.issuance === "managed-acme") return "This trunk is renewed by Let's Encrypt. Use Renew now on the certificate.";
         if (device.locked) return `${device.name} is locked. Unlock it before generating a CSR.`;
         const row: CertRequest = {
           id: uid("req"),
@@ -567,18 +617,32 @@ export const useApp = create<AppState>()(
         if (row.status !== "uploaded") return "A signed certificate has not been uploaded yet.";
         if (device.locked) return `${device.name} is locked.`;
         const match = get().certs.find((item) => item.deviceId === device.id && item.name === row.certName);
+        const managed = match?.issuance === "managed-acme";
+        const days = managed ? 90 : 365;
         set({
-          certs: get().certs.map((item) => (match && item.id === match.id ? { ...item, notAfter: isoInDays(365) } : item)),
+          certs: get().certs.map((item) =>
+            match && item.id === match.id
+              ? {
+                  ...item,
+                  notAfter: isoInDays(days),
+                  requirements: managed ? { ...item.requirements, issuer: "Let's Encrypt", publicTrusted: true } : item.requirements,
+                  acme: managed ? { ...(item.acme ?? blankAcme(item.id)), status: "ready", lastError: "" } : item.acme,
+                }
+              : item,
+          ),
           requests: get().requests.map((item) =>
             item.id === id ? { ...item, status: "completed", updatedAt: new Date().toISOString() } : item,
           ),
           snapshots: [
             snapshotFor(device, "pre-change", `Before applying returned cert ${row.certName}`),
-            snapshotFor(device, "post-change", `Applied customer-signed ${row.certName}`),
+            snapshotFor(device, "post-change", managed ? `Applied Let's Encrypt chain for ${row.certName}` : `Applied customer-signed ${row.certName}`),
             ...get().snapshots,
           ],
-          audits: [audit(actor, "request.apply", `${device.name} / ${row.certName}`, "TLS profiles updated"), ...get().audits],
-          toasts: [toast(`Applied signed certificate to ${device.name}.`, "ok"), ...get().toasts],
+          audits: [
+            audit(actor, "request.apply", `${device.name} / ${row.certName}`, managed ? "Let's Encrypt leaf and intermediate installed" : "TLS profiles updated"),
+            ...get().audits,
+          ],
+          toasts: [toast(managed ? `Let's Encrypt certificate applied to ${device.name} for 90 days.` : `Applied signed certificate to ${device.name}.`, "ok"), ...get().toasts],
         });
         return null;
       },
@@ -678,9 +742,15 @@ export const useApp = create<AppState>()(
         const known = new Map(current.certs.map((cert) => [cert.id, cert]));
         const certs = incoming.length
           ? [
-              ...incoming.map((cert) =>
-                cert.requirements ? cert : { ...cert, requirements: known.get(cert.id)?.requirements ?? defaultRequirements(cert) },
-              ),
+              ...incoming.map((cert) => {
+                const seeded = known.get(cert.id);
+                return {
+                  ...cert,
+                  issuance: cert.issuance ?? seeded?.issuance ?? "customer-ca",
+                  acme: cert.acme ?? seeded?.acme ?? blankAcme(cert.id),
+                  requirements: cert.requirements ?? seeded?.requirements ?? defaultRequirements(cert),
+                };
+              }),
               ...current.certs.filter((cert) => !incoming.some((item) => item.id === cert.id)),
             ]
           : current.certs;

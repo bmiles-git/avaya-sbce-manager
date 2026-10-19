@@ -1,4 +1,4 @@
-import type { Certificate } from "@/lib/types";
+import type { AcmeConfig, Certificate } from "@/lib/types";
 
 export interface CheckResult {
   ok: boolean;
@@ -315,6 +315,35 @@ export function parseChain(pem: string): { error: string } | { certs: ParsedCert
   }
 }
 
+export const MANAGED_ROOTS = ["ISRG Root X1", "ISRG Root X2"];
+
+export function blankAcme(certId: string): AcmeConfig {
+  return {
+    challenge: "dns-01",
+    delegation: "cname",
+    cnameTarget: `${certId}.acme.gagetech.net`,
+    status: "waiting-cname",
+    lastError: "",
+  };
+}
+
+export function acmeNames(cert: Certificate) {
+  const fqdn = cert.requirements?.fqdn || wantedCn(cert.subject);
+  return { host: `_acme-challenge.${fqdn}`, target: cert.acme?.cnameTarget || `${cert.id}.acme.gagetech.net` };
+}
+
+export function buildManagedChain(cert: Certificate, intermediate = "Let's Encrypt E8"): string {
+  const cn = wantedCn(cert.subject);
+  const key = cert.requirements?.keyAlgorithm.startsWith("ECDSA") ? "ECDSA" : "RSA";
+  const sans = [...new Set([...(cert.sans ?? []), cert.requirements?.fqdn ?? ""].filter(Boolean))];
+  const root = "ISRG Root X1";
+  return [
+    buildSamplePem({ cn, sans, key, issuer: intermediate }),
+    buildSamplePem({ cn: intermediate, key, issuer: root, ca: true }),
+    buildSamplePem({ cn: root, key, issuer: root, ca: true }),
+  ].join("");
+}
+
 function sameSupplier(left: string, right: string) {
   const a = left.toLowerCase();
   const b = right.toLowerCase();
@@ -366,7 +395,10 @@ export function checkReplacement(pem: string, cert: Certificate): { ok: boolean;
   const soon = leaf.notAfter.getTime() < Date.now() + 30 * 86400000;
   const notYet = leaf.notBefore.getTime() > Date.now() + 5 * 60000;
   const trusted = cert.requirements?.issuer ?? "";
-  const anchored = !trusted || sameSupplier(leaf.issuer, trusted) || roots.some((item) => sameSupplier(item.cn, trusted));
+  const managedRoot =
+    cert.issuance === "managed-acme" && roots.some((item) => MANAGED_ROOTS.some((name) => sameSupplier(item.cn, name)));
+  const anchored =
+    !trusted || sameSupplier(leaf.issuer, trusted) || roots.some((item) => sameSupplier(item.cn, trusted)) || managedRoot;
   const checks: CheckResult[] = [
     { ok: !leaf.selfSigned, text: leaf.selfSigned ? "Self-signed identity. Avaya SBC rejects that TLS handshake." : "Identity is not self-signed." },
     { ok: leaf.cn.toLowerCase() === cn.toLowerCase(), text: `Subject CN is ${cn}.` },
@@ -393,7 +425,13 @@ export function checkReplacement(pem: string, cert: Certificate): { ok: boolean;
     `Leaf ${leaf.cn} issued by ${leaf.issuer}.`,
     intermediates.length ? `Intermediates: ${intermediates.map((item) => item.cn).join(", ")}.` : "No intermediate was included.",
     roots.length ? `Root: ${roots.map((item) => item.cn).join(", ")}.` : "No root was included.",
-    trustChange ? `Supplier change: ${trusted} -> ${roots[0]?.cn}. Held for operator acceptance.` : anchored ? "Chain ends at the supplier already trusted on this trunk." : "",
+    trustChange
+      ? `Supplier change: ${trusted} -> ${roots[0]?.cn}. Held for operator acceptance.`
+      : managedRoot && !sameSupplier(leaf.issuer, trusted)
+        ? `Managed renewal. ${roots[0]?.cn} is a known Let's Encrypt root, so the intermediate installs with the leaf.`
+        : anchored
+          ? "Chain ends at the supplier already trusted on this trunk."
+          : "",
   ].filter(Boolean).join(" ");
   if (identityOk) checks.push({ ok: true, text: chainNote });
   return { ok: identityOk, trustChange, chainNote, rootCn: roots[0]?.cn ?? "", checks };

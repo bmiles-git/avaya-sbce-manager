@@ -1,3 +1,4 @@
+import { blankAcme } from "@/lib/cert-check";
 import { certRequirements, TEAMS_CIPHERS } from "@/lib/cert-requirements";
 import { isoInDays } from "@/lib/format";
 import type {
@@ -93,7 +94,7 @@ export const seedDevices: Device[] = [
   },
 ];
 
-export const seedCerts: Certificate[] = [
+const seedCertRows: Array<Omit<Certificate, "issuance" | "acme">> = [
   {
     id: "cert_a1_pub",
     deviceId: "d_a1",
@@ -178,7 +179,7 @@ export const seedCerts: Certificate[] = [
     autoRenew: false,
     requirements: certRequirements({
       use: "teams-direct-routing",
-      keyAlgorithm: "RSA-2048",
+      keyAlgorithm: "ECDSA-P256",
       issuer: "DigiCert",
       sipDomain: "umcsn.example",
       fqdn: "sbc.umcsn.example",
@@ -246,6 +247,12 @@ export const seedCerts: Certificate[] = [
     }),
   },
 ];
+
+export const seedCerts: Certificate[] = seedCertRows.map((cert) => ({
+  ...cert,
+  issuance: cert.id === "cert_a1_teams" ? "managed-acme" : "customer-ca",
+  acme: blankAcme(cert.id),
+}));
 
 export const seedSnapshots: Snapshot[] = [
   {

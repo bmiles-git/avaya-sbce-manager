@@ -1,20 +1,27 @@
+import { useState } from "react";
+import { acmeNames } from "@/lib/cert-check";
 import { findingsFor, TEAMS_CIPHERS, USE_LABEL } from "@/lib/cert-requirements";
 import { useApp } from "@/lib/store";
-import type { CertRequirements, CertUse, KeyAlgorithm, PeerCheck } from "@/lib/types";
-import { Field, inputClass, Panel } from "@/components/ui";
+import type { CertRequirements, CertUse, IssuanceMode, KeyAlgorithm, PeerCheck } from "@/lib/types";
+import { Button, Field, inputClass, Panel } from "@/components/ui";
 
 export function CertDetail({ certId }: { certId: string }) {
   const cert = useApp((s) => s.certs.find((item) => item.id === certId));
   const device = useApp((s) => s.devices.find((item) => item.id === cert?.deviceId));
   const update = useApp((s) => s.updateCert);
+  const renewManaged = useApp((s) => s.renewManaged);
+  const actor = useApp((s) => s.session?.name ?? "admin");
   const admin = useApp((s) => s.session?.role === "admin");
+  const [renewError, setRenewError] = useState<string | null>(null);
   if (!cert) return null;
   if (!cert.requirements) {
     return <Panel title={cert.name}>This certificate has no requirement record yet. Reset the demo to reload it.</Panel>;
   }
   const req = cert.requirements;
   const findings = findingsFor(cert);
+  const names = acmeNames(cert);
   const patch = (requirements: Partial<CertRequirements>) => update(cert.id, { requirements });
+  const managed = cert.issuance === "managed-acme";
 
   return (
     <div className="space-y-4">
@@ -83,6 +90,42 @@ export function CertDetail({ certId }: { certId: string }) {
           <Field label="Issuer">
             <input className={inputClass} disabled={!admin} value={req.issuer} onChange={(e) => patch({ issuer: e.target.value })} />
           </Field>
+          <Field label="Issuance">
+            <select
+              className={inputClass}
+              disabled={!admin || cert.kind !== "identity"}
+              value={cert.issuance ?? "customer-ca"}
+              onChange={(e) => update(cert.id, { issuance: e.target.value as IssuanceMode })}
+            >
+              <option value="customer-ca">Customer CA</option>
+              <option value="managed-acme">Managed · Let's Encrypt</option>
+            </select>
+          </Field>
+          {managed ? (
+            <div className="space-y-2 rounded-md border border-line p-3 text-sm">
+              <p>DNS-01 only. Port 80 on the SBCE is not used for the challenge.</p>
+              <p className="font-mono text-xs">
+                {names.host}
+                <br />
+                CNAME {names.target}
+              </p>
+              <p className="text-xs text-muted">
+                {req.use === "teams-direct-routing"
+                  ? "Teams uses ECDSA P-256. A new Let's Encrypt intermediate installs automatically while the root stays ISRG Root X1."
+                  : "RSA 2048 is the usual key. A new Let's Encrypt intermediate installs automatically while the root stays ISRG Root X1."}
+              </p>
+              <Button
+                tone="primary"
+                disabled={!admin || device?.locked}
+                onClick={() => setRenewError(renewManaged(cert.id, actor))}
+              >
+                Renew now
+              </Button>
+              {renewError ? <p className="text-sm text-danger">{renewError}</p> : null}
+            </div>
+          ) : (
+            <p className="text-xs text-muted">The customer CA signs the CSR. A different root waits for acceptance before it is installed.</p>
+          )}
           <Field label="Public FQDN">
             <input className={inputClass} disabled={!admin} value={req.fqdn} onChange={(e) => patch({ fqdn: e.target.value })} />
           </Field>

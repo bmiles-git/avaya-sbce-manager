@@ -63,6 +63,15 @@ export interface Device {
 }
 
 export type CertUse = "teams-direct-routing" | "remote-worker" | "itsp-trunk" | "config-https" | "ems" | "ca";
+export type IssuanceMode = "customer-ca" | "managed-acme";
+
+export interface AcmeConfig {
+  challenge: "dns-01";
+  delegation: "cname";
+  cnameTarget: string;
+  status: "waiting-cname" | "ready" | "failed";
+  lastError: string;
+}
 export type KeyAlgorithm = "ECDSA-P256" | "ECDSA-P384" | "RSA-2048" | "RSA-4096";
 export type PeerCheck = "none" | "required";
 
@@ -99,6 +108,8 @@ export interface Certificate {
   notAfter: string;
   tlsProfiles: string[];
   autoRenew: boolean;
+  issuance: IssuanceMode;
+  acme: AcmeConfig;
   requirements: CertRequirements;
 }
 

@@ -14,6 +14,7 @@ export function Certificates() {
   const sites = useApp((s) => s.sites);
   const renew = useApp((s) => s.renewCert);
   const createRequest = useApp((s) => s.createRequest);
+  const renewManaged = useApp((s) => s.renewManaged);
   const actor = useApp((s) => s.session?.name ?? "admin");
   const admin = useApp((s) => s.session?.role === "admin");
   const focusCertId = useApp((s) => s.focusCertId);
@@ -92,6 +93,8 @@ export function Certificates() {
                     <div>{cert.name}</div>
                     <div className="text-xs text-muted">
                       {cert.requirements ? USE_LABEL[cert.requirements.use] : "Unread"}
+                      {" · "}
+                      {cert.issuance === "managed-acme" ? "Let's Encrypt" : "Customer CA"}
                     </div>
                     <div className="font-mono text-xs text-muted">{cert.subject}</div>
                   </td>
@@ -106,12 +109,13 @@ export function Certificates() {
                       <Button
                         tone="primary"
                         disabled={!admin || device?.locked || cert.kind !== "identity"}
-                        onClick={() => {
-                          const message = createRequest(cert.id, "", actor);
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          const message = cert.issuance === "managed-acme" ? renewManaged(cert.id, actor) : createRequest(cert.id, "", actor);
                           setError(message);
                         }}
                       >
-                        CSR
+                        {cert.issuance === "managed-acme" ? "Renew" : "CSR"}
                       </Button>
                       <Button tone="ghost" onClick={() => { setError(null); setPlan({ cert, dry: true }); }}>
                         Dry run
