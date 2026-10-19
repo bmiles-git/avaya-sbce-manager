@@ -7,6 +7,7 @@ Focused on safe certificate lifecycle automation, configuration snapshots, multi
 ## v1 Scope
 
 - Dual-auth web UI (Entra ID on :443, local admin on :8443)
+- Automatic HTTPS via Caddy + Let's Encrypt
 - Customer / Site / Device hierarchy
 - Encrypted credential store
 - Config snapshots + restore
@@ -18,13 +19,19 @@ Focused on safe certificate lifecycle automation, configuration snapshots, multi
 
 ## Quick Start (development)
 
+1. Edit `Caddyfile` and replace `example.com` with your real domain (required for Let's Encrypt).
+2. Point the domain's DNS A/AAAA record at the host running Docker.
+3. Run:
+
 ```bash
 docker compose up --build
 ```
 
-- Entra / main UI: https://localhost:443
-- Local admin: https://localhost:8443
+- Main UI (Entra ID): `https://your-domain` (port 443)
+- Local admin: `https://your-domain:8443` (uses Caddy internal TLS by default)
+
+Caddy automatically obtains and renews the Let's Encrypt certificate for the main site.
 
 ## Status
 
-Early scaffolding — core models and API skeleton in progress.
+Early scaffolding — core models and API skeleton in progress. HTTPS reverse proxy added.
