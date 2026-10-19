@@ -8,6 +8,7 @@ import {
   Network,
   Server,
   Shield,
+  Users,
 } from "lucide-react";
 import { useApp } from "@/lib/store";
 import type { ViewId } from "@/lib/types";
@@ -18,6 +19,8 @@ import { Certificates } from "@/components/view-certs";
 import { Requests } from "@/components/view-requests";
 import { Reporting } from "@/components/view-reporting";
 import { AccessView, AuditView, Snapshots } from "@/components/view-ops";
+import { UsersView } from "@/components/view-users";
+import { customersFor } from "@/lib/scope";
 
 const NAV: { id: ViewId; label: string; icon: typeof Server }[] = [
   { id: "inventory", label: "Devices", icon: Server },
@@ -27,6 +30,7 @@ const NAV: { id: ViewId; label: string; icon: typeof Server }[] = [
   { id: "snapshots", label: "Snapshots", icon: History },
   { id: "access", label: "VPN", icon: Network },
   { id: "audit", label: "Audit", icon: Activity },
+  { id: "users", label: "Users", icon: Users },
 ];
 
 export function Console() {
@@ -41,6 +45,8 @@ export function Console() {
   const toasts = useApp((s) => s.toasts);
   const dismiss = useApp((s) => s.dismissToast);
   const customer = customers.find((item) => item.id === customerId) ?? null;
+  const visibleCustomers = customersFor(customers, session?.customerIds);
+  const nav = NAV.filter((item) => item.id !== "users" || session?.role === "admin");
   const page = view === "overview" ? "Alarms" : (NAV.find((item) => item.id === view)?.label ?? "SBCE Control");
 
   return (
@@ -68,13 +74,13 @@ export function Console() {
               value={customerId}
               onChange={(e) => selectCustomer(e.target.value)}
             >
-              {customers.map((item) => (
+              {visibleCustomers.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name}
                 </option>
               ))}
             </select>
-            {NAV.map((item) => {
+            {nav.map((item) => {
               const Icon = item.icon;
               const active = view === item.id;
               return (
@@ -124,7 +130,7 @@ export function Console() {
               value={customerId}
               onChange={(e) => selectCustomer(e.target.value)}
             >
-              {customers.map((item) => (
+              {visibleCustomers.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name}
                 </option>
@@ -140,7 +146,7 @@ export function Console() {
               >
                 Alarms
               </button>
-              {NAV.map((item) => (
+              {nav.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => setView(item.id)}
@@ -163,6 +169,7 @@ export function Console() {
             {view === "snapshots" ? <Snapshots /> : null}
             {view === "access" ? <AccessView /> : null}
             {view === "audit" ? <AuditView /> : null}
+            {view === "users" ? <UsersView /> : null}
           </main>
         </div>
       </div>

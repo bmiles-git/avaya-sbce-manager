@@ -4,6 +4,8 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      # Do not leave this on 0.0.0.0 in production. Bind a management address:
+      # - "10.40.8.10:8443:8443"
       - "8443:8443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
@@ -11,16 +13,21 @@ services:
       - caddy_config:/config
     restart: unless-stopped
     depends_on:
-      - app
+      - web
+
+  web:
+    build:
+      context: ./web
+    expose:
+      - "8080"
+    restart: unless-stopped
 
   app:
     build: .
     expose:
       - "8000"
-      - "8001"
     volumes:
       - ./data:/app/data
-      - .:/app
     environment:
       - DATABASE_URL=sqlite:////app/data/sbce_manager.db
       - SECRET_KEY=change-me-in-production

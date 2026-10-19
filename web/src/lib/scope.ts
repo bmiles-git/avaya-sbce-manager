@@ -1,4 +1,9 @@
-import type { Device, Site } from "@/lib/types";
+import type { Customer, Device, Site } from "@/lib/types";
+
+export function customersFor(customers: Customer[], customerIds: string[] | undefined): Customer[] {
+  if (!customerIds || customerIds.length === 0) return customers;
+  return customers.filter((customer) => customerIds.includes(customer.id));
+}
 
 export function haPeer(devices: Device[], device: Device | undefined) {
   if (!device?.haPairId) return undefined;

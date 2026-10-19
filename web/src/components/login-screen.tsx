@@ -53,15 +53,12 @@ export function LoginScreen() {
             <h2 className="font-medium">Local admin</h2>
             <span className="font-mono text-xs text-muted">:8443</span>
           </div>
-          <p className="mb-4 text-sm text-muted">
-            Fallback listener. Admin <span className="font-mono text-fg">harbor-admin</span> or operator{" "}
-            <span className="font-mono text-fg">lookout</span>.
-          </p>
+          <p className="mb-4 text-sm text-muted">Break-glass listener. Use the account an administrator created for you.</p>
           <form
             className="space-y-3"
             onSubmit={(event) => {
               event.preventDefault();
-              setError(signInLocal(username, password));
+              void signInLocal(username, password).then(setError);
             }}
           >
             <Field label="Username">

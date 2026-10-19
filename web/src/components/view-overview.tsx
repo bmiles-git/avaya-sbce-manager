@@ -1,5 +1,5 @@
 import { daysLeft, formatDay, severityOf } from "@/lib/format";
-import { isHaStandby } from "@/lib/scope";
+import { isHaStandby, customersFor } from "@/lib/scope";
 import { useApp } from "@/lib/store";
 import { Panel, Pill } from "@/components/ui";
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
@@ -13,6 +13,8 @@ export function Overview() {
   const acks = useApp((s) => s.acks);
   const ackAlert = useApp((s) => s.ackAlert);
   const openCert = useApp((s) => s.openCert);
+  const session = useApp((s) => s.session);
+  const allowed = new Set(customersFor(customers, session?.customerIds).map((item) => item.id));
 
   const rows = certs
     .filter((cert) => cert.kind === "identity")
@@ -26,6 +28,7 @@ export function Overview() {
       const critical = profile?.criticalDays ?? 7;
       return { cert, device, site, customer, warn, critical, left: daysLeft(cert.notAfter) };
     })
+    .filter((row) => row.customer && allowed.has(row.customer.id))
     .filter((row) => row.left <= row.warn)
     .sort((a, b) => a.left - b.left);
 
@@ -38,7 +41,7 @@ export function Overview() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted">
-        Blended across every customer. Opening an alarm switches into that customer.
+        {session?.customerIds?.length ? "Your assigned customers." : "Blended across every customer."} Opening an alarm switches into that customer.
       </p>
       <div className="grid gap-4 lg:grid-cols-5">
         <Panel title="All customers" className="lg:col-span-2">

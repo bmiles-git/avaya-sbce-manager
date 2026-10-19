@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { hashPassword } from "@/lib/password";
 import { defaultRequirements } from "@/lib/cert-requirements";
 import { blankAcme, buildManagedChain, checkReplacement } from "@/lib/cert-check";
 function sharedCert(source: Certificate) {
@@ -58,6 +59,7 @@ import {
   seedRequests,
   seedSites,
   seedSnapshots,
+  seedUsers,
   defaultTemplate,
 } from "@/lib/seed";
 import type {
@@ -70,6 +72,7 @@ import type {
   ChannelMessage,
   Customer,
   Device,
+  LocalUser,
   ReportProfile,
   Session,
   Site,
@@ -87,6 +90,7 @@ interface DataSlice {
   requests: CertRequest[];
   profiles: ReportProfile[];
   audits: AuditEvent[];
+  users: LocalUser[];
   messages: ChannelMessage[];
   acks: string[];
 }
@@ -99,9 +103,13 @@ interface AppState extends DataSlice {
   focusCertId: string | null;
   focusRequestId: string | null;
   toasts: Toast[];
-  signInLocal: (username: string, password: string) => string | null;
+  signInLocal: (username: string, password: string) => Promise<string | null>;
   signInEntra: () => void;
   signOut: () => void;
+  createUser: (input: { username: string; name: string; password: string; role: LocalUser["role"]; customerIds: string[] }) => Promise<string | null>;
+  setUserPassword: (id: string, password: string) => Promise<string | null>;
+  updateUser: (id: string, patch: { role?: LocalUser["role"]; customerIds?: string[]; name?: string }) => string | null;
+  removeUser: (id: string) => string | null;
   setView: (view: ViewId) => void;
   selectCustomer: (id: string) => void;
   selectDevice: (id: string | null) => void;
@@ -149,6 +157,7 @@ function data(): DataSlice {
     requests: seedRequests,
     profiles: seedProfiles,
     audits: seedAudits,
+    users: seedUsers,
     messages: seedMessages,
     acks: [],
   };
@@ -187,35 +196,113 @@ export const useApp = create<AppState>()(
       focusRequestId: null,
       toasts: [],
 
-      signInLocal: (username, password) => {
-        const user = username.trim().toLowerCase();
-        if (user === "admin" && password === "harbor-admin") {
-          set({
-            session: { mode: "local", name: "Local admin", role: "admin", port: 8443 },
-            toasts: [toast("Signed in on the local admin listener.", "ok")],
-          });
-          return null;
-        }
-        if (user === "operator" && password === "lookout") {
-          set({
-            session: { mode: "local", name: "Local operator", role: "operator", port: 8443 },
-            toasts: [toast("Signed in as operator. Changes that write to an SBCE stay locked.", "ok")],
-          });
-          return null;
-        }
-        return "Unknown local account. Use admin / harbor-admin or operator / lookout.";
+      signInLocal: async (username, password) => {
+        const key = username.trim().toLowerCase();
+        const account = get().users.find((item) => item.username === key);
+        const passwordHash = await hashPassword(key, password);
+        if (!account || passwordHash !== account.passwordHash) return "Unknown local account.";
+        const allowed = account.customerIds.length ? account.customerIds : get().customers.map((item) => item.id);
+        const selected = allowed.includes(get().selectedCustomerId) ? get().selectedCustomerId : allowed[0];
+        set({
+          session: {
+            mode: "local",
+            name: account.name,
+            username: account.username,
+            role: account.role,
+            port: 8443,
+            customerIds: account.customerIds,
+          },
+          selectedCustomerId: selected ?? get().selectedCustomerId,
+          toasts: [toast(account.customerIds.length ? `Signed in for ${account.customerIds.length} customer(s).` : "Signed in on the local admin listener.", "ok")],
+        });
+        return null;
       },
 
       signInEntra: () => {
         set({
-          session: { mode: "entra", name: "Bryan Miles", role: "admin", port: 443 },
+          session: { mode: "entra", name: "Bryan Miles", username: "bryan.miles", role: "admin", port: 443, customerIds: [] },
           toasts: [toast("Entra ID sign-in completed. Delegated admin session is active.", "ok")],
         });
       },
 
       signOut: () => set({ session: null, view: "overview" }),
+
+      createUser: async (input) => {
+        if (get().session?.role !== "admin") return "Only an administrator can add a user.";
+        const username = input.username.trim().toLowerCase();
+        if (!/^[a-z][a-z0-9._-]{2,31}$/.test(username)) return "Use 3–32 characters: a letter, then letters, numbers, dots, or hyphens.";
+        if (get().users.some((item) => item.username === username)) return "That username already exists.";
+        if (input.password.length < 8) return "Use at least 8 characters.";
+        if (input.role === "operator" && input.customerIds.length === 0) return "Assign an operator to at least one customer.";
+        const row: LocalUser = {
+          id: uid("user"),
+          username,
+          name: input.name.trim() || username,
+          role: input.role,
+          customerIds: input.role === "admin" && input.customerIds.length === 0 ? [] : input.customerIds,
+          passwordHash: await hashPassword(username, input.password),
+        };
+        set({
+          users: [...get().users, row],
+          audits: [audit(get().session?.name ?? "admin", "user.create", username, row.customerIds.length ? row.customerIds.join(", ") : "all customers"), ...get().audits],
+          toasts: [toast(`${username} can sign in on port 8443.`, "ok"), ...get().toasts],
+        });
+        return null;
+      },
+
+      setUserPassword: async (id, password) => {
+        const actor = get().session;
+        const account = get().users.find((item) => item.id === id);
+        if (!actor || actor.role !== "admin") return "Only an administrator can set a password.";
+        if (!account) return "User not found.";
+        if (password.length < 8) return "Use at least 8 characters.";
+        const passwordHash = await hashPassword(account.username, password);
+        set({
+          users: get().users.map((item) => (item.id === id ? { ...item, passwordHash } : item)),
+          audits: [audit(actor.name, "user.password", account.username, "Password changed"), ...get().audits],
+          toasts: [toast(`Password updated for ${account.username}.`, "ok"), ...get().toasts],
+        });
+        return null;
+      },
+
+      updateUser: (id, patch) => {
+        const actor = get().session;
+        const account = get().users.find((item) => item.id === id);
+        if (!actor || actor.role !== "admin") return "Only an administrator can change a user.";
+        if (!account) return "User not found.";
+        const role = patch.role ?? account.role;
+        const customerIds = patch.customerIds ?? account.customerIds;
+        if (role === "operator" && customerIds.length === 0) return "Assign an operator to at least one customer.";
+        if (account.role === "admin" && role !== "admin" && get().users.filter((item) => item.role === "admin").length < 2) {
+          return "Keep at least one administrator.";
+        }
+        set({
+          users: get().users.map((item) =>
+            item.id === id ? { ...item, role, customerIds, name: patch.name?.trim() || item.name } : item,
+          ),
+          audits: [audit(actor.name, "user.update", account.username, customerIds.length ? customerIds.join(", ") : "all customers"), ...get().audits],
+        });
+        return null;
+      },
+
+      removeUser: (id) => {
+        const actor = get().session;
+        const account = get().users.find((item) => item.id === id);
+        if (!actor || actor.role !== "admin") return "Only an administrator can remove a user.";
+        if (!account) return "User not found.";
+        if (account.username === actor.username) return "You cannot remove the account you are signed in as.";
+        if (account.role === "admin" && get().users.filter((item) => item.role === "admin").length < 2) return "Keep at least one administrator.";
+        set({
+          users: get().users.filter((item) => item.id !== id),
+          audits: [audit(actor.name, "user.remove", account.username, ""), ...get().audits],
+          toasts: [toast(`${account.username} removed.`, "ok"), ...get().toasts],
+        });
+        return null;
+      },
       setView: (view) => set({ view }),
       selectCustomer: (id) => {
+        const scope = get().session?.customerIds ?? [];
+        if (scope.length > 0 && !scope.includes(id)) return;
         const siteIds = new Set(get().sites.filter((site) => site.customerId === id).map((site) => site.id));
         const devices = get().devices.filter((device) => siteIds.has(device.siteId));
         const current = get().selectedDeviceId;
@@ -876,6 +963,7 @@ export const useApp = create<AppState>()(
         requests: state.requests,
         profiles: state.profiles,
         audits: state.audits,
+        users: state.users,
         messages: state.messages,
         acks: state.acks,
       }),
@@ -907,6 +995,10 @@ export const useApp = create<AppState>()(
             ...current.audits.filter((event) => !(saved.audits ?? []).some((item) => item.id === event.id)),
             ...(saved.audits ?? current.audits),
           ],
+          users: saved.users?.length ? saved.users : current.users,
+          session: saved.session
+            ? { ...saved.session, username: saved.session.username ?? saved.session.name, customerIds: saved.session.customerIds ?? [] }
+            : null,
           profiles: scoped ? profiles : current.profiles,
           selectedCustomerId: saved.selectedCustomerId || current.selectedCustomerId,
         };

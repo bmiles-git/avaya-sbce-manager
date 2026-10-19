@@ -8,7 +8,8 @@ export type ViewId =
   | "reporting"
   | "snapshots"
   | "access"
-  | "audit";
+  | "audit"
+  | "users";
 
 export type DeviceRole = "standalone" | "ems" | "ha-active" | "ha-standby";
 export type AccessMethod = "public" | "tunnel" | "customer-vpn";
@@ -28,8 +29,19 @@ export type RequestStatus =
 export interface Session {
   mode: AuthMode;
   name: string;
+  username: string;
   role: Role;
   port: 443 | 8443;
+  customerIds: string[];
+}
+
+export interface LocalUser {
+  id: string;
+  username: string;
+  name: string;
+  role: Role;
+  customerIds: string[];
+  passwordHash: string;
 }
 
 export interface Customer {

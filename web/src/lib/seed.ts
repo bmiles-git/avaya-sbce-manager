@@ -8,10 +8,30 @@ import type {
   ChannelMessage,
   Customer,
   Device,
+  LocalUser,
   ReportProfile,
   Site,
   Snapshot,
 } from "@/lib/types";
+
+export const seedUsers: LocalUser[] = [
+  {
+    id: "user_admin",
+    username: "admin",
+    name: "Local admin",
+    role: "admin",
+    customerIds: [],
+    passwordHash: "04c21d9669308ce8728a521d44913437afb37b106c482c8e7eccfd749630e1d1",
+  },
+  {
+    id: "user_harbor",
+    username: "harbor",
+    name: "Harbor operator",
+    role: "operator",
+    customerIds: ["c_harbor"],
+    passwordHash: "9f3e2702795942c791bc393f7eab537511ffbfcd6a952150ac798cf42f8b0264",
+  },
+];
 
 export const seedCustomers: Customer[] = [
   { id: "c_umcsn", name: "UMCSN", code: "UMCSN", locale: "en-US", timezone: "America/Los_Angeles" },

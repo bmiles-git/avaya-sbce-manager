@@ -1,12 +1,12 @@
-# Main UI (Entra ID) — automatic Let's Encrypt
-# Replace example.com with your real domain
+# Public console. Entra ID sign-in and customer certificate upload.
+# Replace example.com. Port 80 must stay open so Let's Encrypt can issue this certificate.
 example.com {
-    reverse_proxy app:8000
+	reverse_proxy web:8080
 }
 
-# Local admin UI — can use internal TLS or a separate cert
-# For production you may want a second domain or self-signed
+# Break-glass local accounts. Same site, separate listener so the firewall can
+# refuse the public internet. Prefer binding 8443 to a management address.
 :8443 {
-    tls internal
-    reverse_proxy app:8001
+	tls internal
+	reverse_proxy web:8080
 }
