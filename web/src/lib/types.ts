@@ -158,6 +158,14 @@ export interface ReportProfile {
   template: string;
 }
 
+export type AuditStatus = "done" | "failed" | "skipped";
+
+export interface AuditStep {
+  name: string;
+  status: AuditStatus;
+  detail: string;
+}
+
 export interface AuditEvent {
   id: string;
   at: string;
@@ -165,6 +173,8 @@ export interface AuditEvent {
   action: string;
   target: string;
   detail: string;
+  outcome?: AuditStatus;
+  steps?: AuditStep[];
 }
 
 export interface ChannelMessage {

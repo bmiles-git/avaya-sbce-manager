@@ -63,6 +63,7 @@ import {
 import type {
   AcmeConfig,
   AuditEvent,
+  AuditStep,
   Certificate,
   CertRequest,
   CertRequirements,
@@ -153,8 +154,9 @@ function data(): DataSlice {
   };
 }
 
-function audit(actor: string, action: string, target: string, detail: string): AuditEvent {
-  return { id: uid("aud"), at: new Date().toISOString(), actor, action, target, detail };
+function audit(actor: string, action: string, target: string, detail: string, steps?: AuditStep[]): AuditEvent {
+  const outcome = steps?.some((step) => step.status === "failed") ? "failed" : "done";
+  return { id: uid("aud"), at: new Date().toISOString(), actor, action, target, detail, outcome: steps ? outcome : "done", steps };
 }
 
 function snapshotFor(device: Device, trigger: Snapshot["trigger"], summary: string, label = ""): Snapshot {
@@ -329,8 +331,28 @@ export const useApp = create<AppState>()(
         const cert = get().certs.find((item) => item.id === certId);
         const device = cert && get().devices.find((item) => item.id === cert.deviceId);
         if (!cert || !device) return "Certificate not found.";
-        if (device.locked) return `${device.name} is locked.`;
-        if (device.maintenance) return `${device.name} is in maintenance mode.`;
+        if (device.locked) {
+          set({
+            audits: [
+              audit(actor, "cert.renew", `${device.name} / ${cert.name}`, `${device.name} is locked.`, [
+                { name: "Confirm unlocked", status: "failed", detail: `${device.name} is locked.` },
+              ]),
+              ...get().audits,
+            ],
+          });
+          return `${device.name} is locked.`;
+        }
+        if (device.maintenance) {
+          set({
+            audits: [
+              audit(actor, "cert.renew", `${device.name} / ${cert.name}`, `${device.name} is in maintenance mode.`, [
+                { name: "Confirm not in maintenance", status: "failed", detail: `${device.name} is in maintenance mode.` },
+              ]),
+              ...get().audits,
+            ],
+          });
+          return `${device.name} is in maintenance mode.`;
+        }
         const pre = snapshotFor(device, "pre-change", `Before replacing ${cert.name}`);
         const nextExpiry = isoInDays(90);
         const peer = device.haPairId
@@ -342,11 +364,21 @@ export const useApp = create<AppState>()(
         );
         const extra: Snapshot[] = [pre, snapshotFor(device, "post-change", `Installed ${cert.name}, expires in 90 days`)];
         const events = [
-          audit(actor, "cert.renew", `${device.name} / ${cert.name}`, "Uploaded identity cert and updated TLS profiles"),
+          audit(actor, "cert.renew", `${device.name} / ${cert.name}`, "Identity installed and TLS profiles updated.", [
+            { name: "Authenticate", status: "done", detail: `Signed in to ${device.name}.` },
+            { name: "Pre-change snapshot", status: "done", detail: pre.summary },
+            { name: "Upload identity", status: "done", detail: `${cert.name} overwritten by name.` },
+            { name: "Point TLS profiles", status: "done", detail: cert.tlsProfiles.join(", ") || "No TLS profile on this certificate." },
+            { name: "Re-read certificate", status: "done", detail: "notAfter moved out 90 days." },
+            peer
+              ? peer.locked || peer.maintenance
+                ? { name: `Standby ${peer.name}`, status: "failed" as const, detail: peer.locked ? `${peer.name} is locked.` : `${peer.name} is in maintenance.` }
+                : { name: `Standby ${peer.name}`, status: "done" as const, detail: "Same certificate installed after the health check." }
+              : { name: "Standby", status: "skipped" as const, detail: "This SBCE is not part of an HA pair." },
+          ]),
         ];
         if (peer && !peer.locked && !peer.maintenance) {
           extra.push(snapshotFor(peer, "post-change", `Standby ${peer.name} updated with the same ${cert.name}`));
-          events.unshift(audit(actor, "cert.renew", `${peer.name} / ${cert.name}`, "HA standby kept identical after the health check"));
         }
         set({
           certs: updated,
@@ -368,7 +400,13 @@ export const useApp = create<AppState>()(
         if (!cert.requirements?.fqdn) return "Set the public FQDN before a DNS-01 renewal.";
         const pem = buildManagedChain(cert);
         const result = checkReplacement(pem, cert);
-        if (!result.ok) return result.checks.filter((item) => !item.ok).map((item) => item.text).join(" ");
+        if (!result.ok) {
+          const steps = result.checks.map((item) => ({ name: item.ok ? "Check passed" : "Check failed", status: item.ok ? "done" as const : "failed" as const, detail: item.text }));
+          set({
+            audits: [audit(actor, "acme.issue", `${device.name} / ${cert.name}`, "DNS-01 renewal did not match this trunk.", steps), ...get().audits],
+          });
+          return result.checks.filter((item) => !item.ok).map((item) => item.text).join(" ");
+        }
         const row: CertRequest = {
           id: uid("req"),
           deviceId: device.id,
@@ -393,7 +431,18 @@ export const useApp = create<AppState>()(
         };
         set({
           requests: [row, ...get().requests],
-          audits: [audit(actor, "acme.issue", `${device.name} / ${cert.name}`, result.chainNote), ...get().audits],
+          audits: [
+            audit(actor, "acme.issue", `${device.name} / ${cert.name}`, result.chainNote, [
+              { name: "DNS-01 order", status: "done", detail: `Challenge name _acme-challenge.${cert.requirements.fqdn}.` },
+              { name: "Issued leaf and intermediate", status: "done", detail: result.chainNote },
+              {
+                name: "Trust decision",
+                status: "done",
+                detail: result.trustChange ? "New root is held until an operator accepts it." : "Root is already trusted for this trunk.",
+              },
+            ]),
+            ...get().audits,
+          ],
         });
         if (result.trustChange) return "The root is not a known Let's Encrypt root. It is held until you accept it.";
         return get().applyRequest(row.id, actor);
@@ -549,7 +598,21 @@ export const useApp = create<AppState>()(
           get().certs.find((item) => item.deviceId === row.deviceId && item.name === row.certName);
         if (!cert) return "The trunk this link replaces is no longer in inventory.";
         const result = checkReplacement(pem, cert);
-        if (!result.ok) return result.checks.filter((item) => !item.ok).map((item) => item.text).join(" ");
+        if (!result.ok) {
+          set({
+            audits: [
+              audit(
+                "customer-upload",
+                "request.upload",
+                `${row.certName}`,
+                "Returned certificate was rejected.",
+                result.checks.map((item) => ({ name: item.ok ? "Check passed" : "Check failed", status: item.ok ? "done" as const : "failed" as const, detail: item.text })),
+              ),
+              ...get().audits,
+            ],
+          });
+          return result.checks.filter((item) => !item.ok).map((item) => item.text).join(" ");
+        }
         set({
           requests: get().requests.map((item) =>
             item.id === row.id
@@ -563,12 +626,14 @@ export const useApp = create<AppState>()(
               : item,
           ),
           audits: [
-            audit(
-              "customer-upload",
-              result.trustChange ? "request.trust-change" : "request.upload",
-              row.certName,
-              result.chainNote,
-            ),
+            audit("customer-upload", result.trustChange ? "request.trust-change" : "request.upload", row.certName, result.chainNote, [
+              ...result.checks.filter((item) => item.ok).map((item) => ({ name: "Check passed", status: "done" as const, detail: item.text })),
+              {
+                name: "Trust decision",
+                status: "done",
+                detail: result.trustChange ? "New root held for acceptance." : "Supplier already trusted.",
+              },
+            ]),
             ...get().audits,
           ],
         });
@@ -659,9 +724,30 @@ export const useApp = create<AppState>()(
         const row = get().requests.find((item) => item.id === id);
         const device = row && get().devices.find((item) => item.id === row.deviceId);
         if (!row || !device) return "Request not found.";
-        if (row.status === "chain_review") return "A new root is waiting. Accept the supplier change before applying it.";
+        if (row.status === "chain_review") {
+          set({
+            audits: [
+              audit(actor, "request.apply", `${device.name} / ${row.certName}`, "A new root is waiting.", [
+                { name: "Accept supplier", status: "failed", detail: "The new root has not been accepted." },
+                { name: "Install", status: "skipped", detail: "Nothing was written to the SBCE." },
+              ]),
+              ...get().audits,
+            ],
+          });
+          return "A new root is waiting. Accept the supplier change before applying it.";
+        }
         if (row.status !== "uploaded") return "A signed certificate has not been uploaded yet.";
-        if (device.locked) return `${device.name} is locked.`;
+        if (device.locked) {
+          set({
+            audits: [
+              audit(actor, "request.apply", `${device.name} / ${row.certName}`, `${device.name} is locked.`, [
+                { name: "Confirm unlocked", status: "failed", detail: `${device.name} is locked.` },
+              ]),
+              ...get().audits,
+            ],
+          });
+          return `${device.name} is locked.`;
+        }
         const match = get().certs.find((item) => item.deviceId === device.id && item.name === row.certName);
         const managed = match?.issuance === "managed-acme";
         const days = managed ? 90 : 365;
@@ -688,7 +774,17 @@ export const useApp = create<AppState>()(
             ...get().snapshots,
           ],
           audits: [
-            audit(actor, "request.apply", `${device.name} / ${row.certName}`, managed ? "Let's Encrypt leaf and intermediate installed" : "TLS profiles updated"),
+            audit(actor, "request.apply", `${device.name} / ${row.certName}`, managed ? "Let's Encrypt leaf and intermediate installed." : "TLS profiles updated.", [
+              { name: "Pre-change snapshot", status: "done", detail: `Saved ${device.name} before the write.` },
+              { name: "Upload chain", status: "done", detail: managed ? "Leaf and Let's Encrypt intermediate uploaded." : "Customer chain uploaded." },
+              { name: "Point TLS profiles", status: "done", detail: match?.tlsProfiles.join(", ") || row.certName },
+              { name: "Re-read certificate", status: "done", detail: `notAfter moved out ${days} days.` },
+              peer
+                ? peer.locked
+                  ? { name: `Standby ${peer.name}`, status: "failed" as const, detail: `${peer.name} is locked.` }
+                  : { name: `Standby ${peer.name}`, status: "done" as const, detail: "Same certificate installed after the health check." }
+                : { name: "Standby", status: "skipped" as const, detail: "This SBCE is not part of an HA pair." },
+            ]),
             ...get().audits,
           ],
           toasts: [toast(managed ? `Let's Encrypt certificate applied to ${device.name}${peer ? ` and ${peer.name}` : ""} for 90 days.` : `Applied signed certificate to ${device.name}${peer ? ` and ${peer.name}` : ""}.`, "ok"), ...get().toasts],
@@ -807,6 +903,10 @@ export const useApp = create<AppState>()(
           ...current,
           ...saved,
           certs: syncHaCerts(certs, saved.devices ?? current.devices),
+          audits: [
+            ...current.audits.filter((event) => !(saved.audits ?? []).some((item) => item.id === event.id)),
+            ...(saved.audits ?? current.audits),
+          ],
           profiles: scoped ? profiles : current.profiles,
           selectedCustomerId: saved.selectedCustomerId || current.selectedCustomerId,
         };

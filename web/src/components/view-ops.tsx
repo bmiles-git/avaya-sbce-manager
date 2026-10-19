@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { formatWhen } from "@/lib/format";
 import { devicesFor } from "@/lib/scope";
 import { useApp } from "@/lib/store";
-import type { AccessMethod } from "@/lib/types";
+import type { AccessMethod, AuditEvent, AuditStep } from "@/lib/types";
 import { Button, Field, inputClass, Panel, Pill } from "@/components/ui";
 
 export function Snapshots() {
@@ -164,6 +164,11 @@ export function AccessView() {
   );
 }
 
+function stepsFor(event: AuditEvent): AuditStep[] {
+  if (event.steps?.length) return event.steps;
+  return [{ name: event.action, status: event.outcome ?? "done", detail: event.detail || "No further detail was recorded." }];
+}
+
 export function AuditView() {
   const audits = useApp((s) => s.audits);
   const customers = useApp((s) => s.customers);
@@ -173,9 +178,10 @@ export function AuditView() {
   const customer = customers.find((item) => item.id === customerId);
   const names = devicesFor(sites, devices, customerId).map((device) => device.name.toLowerCase());
   const [q, setQ] = useState("");
+  const [openId, setOpenId] = useState<string | null>(null);
   const needle = q.trim().toLowerCase();
   const rows = audits.filter((event) => {
-    const blob = `${event.action} ${event.actor} ${event.target} ${event.detail}`.toLowerCase();
+    const blob = `${event.action} ${event.actor} ${event.target} ${event.detail} ${stepsFor(event).map((step) => `${step.name} ${step.detail}`).join(" ")}`.toLowerCase();
     const mine =
       (customer ? blob.includes(customer.name.toLowerCase()) : false) ||
       names.some((name) => name.length > 0 && blob.includes(name));
@@ -184,18 +190,46 @@ export function AuditView() {
   });
   return (
     <Panel title="Audit log" action={<input className={inputClass + " w-48"} placeholder="Filter" value={q} onChange={(e) => setQ(e.target.value)} />}>
+      <p className="mb-2 text-sm text-muted">Click a process to see which steps finished and which failed.</p>
       <ul className="divide-y divide-line">
-        {rows.map((event) => (
-          <li key={event.id} className="grid gap-1 py-3 sm:grid-cols-4">
-            <span className="font-mono text-xs text-muted">{formatWhen(event.at)}</span>
-            <span className="font-mono text-xs text-brass">{event.action}</span>
-            <span className="text-sm">{event.target}</span>
-            <span className="text-sm text-muted">
-              {event.actor}
-              {event.detail ? ` · ${event.detail}` : ""}
-            </span>
-          </li>
-        ))}
+        {rows.length === 0 ? <li className="py-3 text-sm text-muted">No audit events for this customer.</li> : null}
+        {rows.map((event) => {
+          const open = openId === event.id;
+          const steps = stepsFor(event);
+          const failed = steps.filter((step) => step.status === "failed").length;
+          const tone = event.outcome === "failed" || failed > 0 ? "critical" : "ok";
+          return (
+            <li key={event.id}>
+              <button type="button" className="grid w-full gap-1 py-3 text-left sm:grid-cols-[9rem_7rem_1fr_auto]" onClick={() => setOpenId(open ? null : event.id)}>
+                <span className="font-mono text-xs text-muted">{formatWhen(event.at)}</span>
+                <span className="font-mono text-xs text-brass">{event.action}</span>
+                <span className="text-sm">
+                  {event.target}
+                  <span className="mt-0.5 block text-xs text-muted">
+                    {event.actor}
+                    {event.detail ? ` · ${event.detail}` : ""}
+                  </span>
+                </span>
+                <Pill tone={tone}>{failed > 0 ? `${failed} failed` : "Done"}</Pill>
+              </button>
+              {open ? (
+                <ol className="mb-3 space-y-2 rounded-md bg-bg px-3 py-3">
+                  {steps.map((step, index) => (
+                    <li key={`${step.name}-${index}`} className="grid grid-cols-[5.5rem_1fr] gap-3 text-sm">
+                      <Pill tone={step.status === "failed" ? "critical" : step.status === "skipped" ? "muted" : "ok"}>
+                        {step.status === "failed" ? "Failed" : step.status === "skipped" ? "Skipped" : "Done"}
+                      </Pill>
+                      <span>
+                        <span className="font-medium">{step.name}</span>
+                        {step.detail ? <span className="mt-0.5 block text-muted">{step.detail}</span> : null}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              ) : null}
+            </li>
+          );
+        })}
       </ul>
     </Panel>
   );
