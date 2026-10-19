@@ -139,10 +139,12 @@ function DeviceDetail({
   onMaint: () => void;
 }) {
   const device = useApp((s) => s.devices.find((d) => d.id === deviceId));
-  const certs = useApp((s) => s.certs.filter((c) => c.deviceId === deviceId));
-  const peer = useApp((s) =>
-    device?.haPairId ? s.devices.find((d) => d.haPairId === device.haPairId && d.id !== device.id) : undefined,
-  );
+  const allCerts = useApp((s) => s.certs);
+  const devices = useApp((s) => s.devices);
+  const certs = allCerts.filter((c) => c.deviceId === deviceId);
+  const peer = device?.haPairId
+    ? devices.find((d) => d.haPairId === device.haPairId && d.id !== device.id)
+    : undefined;
   if (!device) return null;
   return (
     <div className="space-y-4 text-sm">
