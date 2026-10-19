@@ -1,0 +1,14 @@
+services:
+  app:
+    build: .
+    ports:
+      - "443:8000"
+      - "8443:8001"
+    volumes:
+      - ./data:/app/data
+      - .:/app
+    environment:
+      - DATABASE_URL=sqlite:////app/data/sbce_manager.db
+      - SECRET_KEY=change-me-in-production
+      - ENCRYPTION_KEY=change-me-in-production-32bytes!!
+    restart: unless-stopped
