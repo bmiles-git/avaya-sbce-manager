@@ -3,7 +3,9 @@ import { daysLeft, formatDay, severityOf } from "@/lib/format";
 import { devicesFor } from "@/lib/scope";
 import { useApp } from "@/lib/store";
 import type { Certificate } from "@/lib/types";
+import { CertDetail } from "@/components/cert-detail";
 import { Button, Modal, Pill } from "@/components/ui";
+import { USE_LABEL } from "@/lib/cert-requirements";
 
 export function Certificates() {
   const certs = useApp((s) => s.certs);
@@ -20,17 +22,17 @@ export function Certificates() {
   const [plan, setPlan] = useState<{ cert: Certificate; dry: boolean } | null>(null);
   const [ha, setHa] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
 
   useEffect(() => {
     if (focusCertId) setFilter("all");
   }, [focusCertId]);
 
   const scoped = new Set(devicesFor(sites, devices, customerId).map((device) => device.id));
-  const focused = scoped.has(focusCertId ?? "") ? (certs.find((c) => c.id === focusCertId) ?? null) : null;
 
   const rows = certs
     .filter((c) => scoped.has(c.deviceId))
-    .filter((c) => c.kind === "identity")
+    .filter((c) => (filter === "all" ? true : c.kind === "identity"))
     .filter((c) => {
       const tone = severityOf(c.notAfter);
       if (filter === "critical") return tone === "critical";
@@ -39,6 +41,12 @@ export function Certificates() {
       return true;
     })
     .sort((a, b) => daysLeft(a.notAfter) - daysLeft(b.notAfter));
+
+  const selectedId = rows.some((cert) => cert.id === picked)
+    ? picked
+    : rows.some((cert) => cert.id === focusCertId)
+      ? focusCertId
+      : (rows[0]?.id ?? null);
 
   return (
     <div className="space-y-4">
@@ -49,10 +57,9 @@ export function Certificates() {
           </Button>
         ))}
       </div>
-      {focused ? <CertEntity certId={focused.id} /> : null}
-      {error ? <p className="text-sm text-danger">{error}</p> : null}
-      <p className="text-sm text-muted">CSR builds a sample for that trunk's subject and SANs, then opens it under CSR requests.</p>
-      <div className="overflow-x-auto rounded-md border border-line">
+      <p className="text-sm text-muted">Select a certificate to read or change the requirements from the Teams and remote-worker notes.</p>
+      <div className="grid items-start gap-4 xl:grid-cols-5">
+      <div className="overflow-x-auto rounded-md border border-line xl:col-span-3">
         <table className="w-full min-w-[720px] text-left text-sm">
           <thead className="bg-raised text-xs text-muted">
             <tr>
@@ -72,7 +79,8 @@ export function Certificates() {
               return (
                 <tr
                   key={cert.id}
-                  className={cert.id === focusCertId ? "border-t border-brass bg-raised" : "border-t border-line"}
+                  onClick={() => setPicked(cert.id)}
+                  className={cert.id === selectedId ? "cursor-pointer border-t border-brass bg-raised" : "cursor-pointer border-t border-line"}
                 >
                   <td className="px-3 py-3">
                     <div>{device?.name}</div>
@@ -82,6 +90,9 @@ export function Certificates() {
                   </td>
                   <td className="px-3 py-3">
                     <div>{cert.name}</div>
+                    <div className="text-xs text-muted">
+                      {cert.requirements ? USE_LABEL[cert.requirements.use] : "Unread"}
+                    </div>
                     <div className="font-mono text-xs text-muted">{cert.subject}</div>
                   </td>
                   <td className="px-3 py-3">
@@ -94,7 +105,7 @@ export function Certificates() {
                     <div className="flex flex-wrap gap-2">
                       <Button
                         tone="primary"
-                        disabled={!admin || device?.locked}
+                        disabled={!admin || device?.locked || cert.kind !== "identity"}
                         onClick={() => {
                           const message = createRequest(cert.id, "", actor);
                           setError(message);
@@ -122,6 +133,9 @@ export function Certificates() {
           </tbody>
         </table>
       </div>
+      <div className="xl:col-span-2">{selectedId ? <CertDetail certId={selectedId} /> : null}</div>
+      </div>
+      {error ? <p className="text-sm text-danger">{error}</p> : null}
 
       {plan ? (
         <Modal title={plan.dry ? "Dry run" : "Apply certificate"} onClose={() => setPlan(null)}>
@@ -164,50 +178,5 @@ export function Certificates() {
         </Modal>
       ) : null}
     </div>
-  );
-}
-
-function CertEntity({ certId }: { certId: string }) {
-  const cert = useApp((s) => s.certs.find((item) => item.id === certId));
-  const device = useApp((s) => (cert ? s.devices.find((item) => item.id === cert.deviceId) : undefined));
-  const site = useApp((s) => (device ? s.sites.find((item) => item.id === device.siteId) : undefined));
-  const customer = useApp((s) => (site ? s.customers.find((item) => item.id === site.customerId) : undefined));
-  const selectDevice = useApp((s) => s.selectDevice);
-  if (!cert || !device) return null;
-  return (
-    <section className="rounded-md border border-brass bg-surface p-4">
-      <p className="text-xs text-brass">
-        {customer?.name} · {site?.name}
-      </p>
-      <h2 className="mt-1 text-lg font-medium">
-        {device.name} / {cert.name}
-      </h2>
-      <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
-        <div>
-          <dt className="text-xs text-muted">Endpoint</dt>
-          <dd className="font-mono">{device.endpoint}</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-muted">Subject</dt>
-          <dd className="font-mono">{cert.subject}</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-muted">TLS profiles</dt>
-          <dd>{cert.tlsProfiles.join(", ") || "none"}</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-muted">State</dt>
-          <dd>
-            {device.locked ? "locked" : "unlocked"}
-            {device.maintenance ? " · maintenance" : ""} · {daysLeft(cert.notAfter)} days
-          </dd>
-        </div>
-      </dl>
-      <div className="mt-3">
-        <Button tone="ghost" onClick={() => selectDevice(device.id)}>
-          Open device
-        </Button>
-      </div>
-    </section>
   );
 }

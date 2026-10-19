@@ -29,17 +29,29 @@ export function isoInDays(days: number) {
   return d.toISOString();
 }
 
-export function fakeCsr(input: { name: string; subject: string; sans: string[]; device: string; profiles: string[] }) {
+export function fakeCsr(input: {
+  name: string;
+  subject: string;
+  sans: string[];
+  device: string;
+  profiles: string[];
+  keyAlgorithm?: string;
+  use?: string;
+}) {
   const san = input.sans.length ? input.sans.map((name) => `DNS:${name}`).join(", ") : "none";
   const body = [
     "SBCE Control sample CSR. Preview only, not a real PKCS#10.",
     `Certificate: ${input.name}`,
+    input.use ? `Use: ${input.use}` : "",
     `Device: ${input.device}`,
     `Subject: ${input.subject}`,
     `SubjectAltName: ${san}`,
+    input.keyAlgorithm ? `Key: ${input.keyAlgorithm}` : "",
     `TLS profiles: ${input.profiles.join(", ") || "none"}`,
     `Generated: ${new Date().toISOString()}`,
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
   return `-----BEGIN CERTIFICATE REQUEST-----\n${body}\n-----END CERTIFICATE REQUEST-----\n`;
 }
 

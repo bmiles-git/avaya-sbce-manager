@@ -1,3 +1,4 @@
+import { certRequirements, TEAMS_CIPHERS } from "@/lib/cert-requirements";
 import { isoInDays } from "@/lib/format";
 import type {
   AuditEvent,
@@ -103,6 +104,12 @@ export const seedCerts: Certificate[] = [
     notAfter: isoInDays(12),
     tlsProfiles: ["TLS-Trunk-Genesis", "TLS-Trunk-Infinity"],
     autoRenew: true,
+    requirements: certRequirements({
+      use: "itsp-trunk",
+      sipDomain: "umcsn.example",
+      fqdn: "sbc-a1.umcsn.example",
+      issuer: "DigiCert",
+    }),
   },
   {
     id: "cert_a1_rw",
@@ -114,6 +121,14 @@ export const seedCerts: Certificate[] = [
     notAfter: isoInDays(64),
     tlsProfiles: ["TLS-Remote-Worker"],
     autoRenew: false,
+    requirements: certRequirements({
+      use: "remote-worker",
+      avayaDemo: true,
+      publicTrusted: false,
+      issuer: "Avaya Demo",
+      sipDomain: "umcsn.example",
+      fqdn: "rw.umcsn.example",
+    }),
   },
   {
     id: "cert_b1_pub",
@@ -125,6 +140,11 @@ export const seedCerts: Certificate[] = [
     notAfter: isoInDays(4),
     tlsProfiles: ["TLS-Trunk-Genesis"],
     autoRenew: true,
+    requirements: certRequirements({
+      use: "itsp-trunk",
+      sipDomain: "umcsn.example",
+      fqdn: "sbc-b1.umcsn.example",
+    }),
   },
   {
     id: "cert_ems",
@@ -136,6 +156,41 @@ export const seedCerts: Certificate[] = [
     notAfter: isoInDays(140),
     tlsProfiles: ["TLS-Mgmt"],
     autoRenew: false,
+    requirements: certRequirements({
+      use: "ems",
+      publicTrusted: false,
+      issuer: "Internal CA",
+      signalingPort: 443,
+      sipDomain: "umcsn.example",
+      fqdn: "ems.umcsn.example",
+      srtp: false,
+    }),
+  },
+  {
+    id: "cert_a1_teams",
+    deviceId: "d_a1",
+    name: "teams-direct-routing",
+    kind: "identity",
+    subject: "CN=sbc.umcsn.example",
+    sans: ["sbc.umcsn.example"],
+    notAfter: isoInDays(18),
+    tlsProfiles: ["TLS-Teams-Server", "TLS-Teams-Client"],
+    autoRenew: false,
+    requirements: certRequirements({
+      use: "teams-direct-routing",
+      keyAlgorithm: "RSA-2048",
+      issuer: "DigiCert",
+      sipDomain: "umcsn.example",
+      fqdn: "sbc.umcsn.example",
+      m365Domain: true,
+      serverPeerVerification: "none",
+      clientPeerVerification: "required",
+      peerCaImported: false,
+      ciphers: [TEAMS_CIPHERS[1]],
+      srtp: true,
+      srtcp: true,
+      mki: false,
+    }),
   },
   {
     id: "cert_hbr",
@@ -147,6 +202,13 @@ export const seedCerts: Certificate[] = [
     notAfter: isoInDays(21),
     tlsProfiles: ["TLS-RW-Server"],
     autoRenew: true,
+    requirements: certRequirements({
+      use: "remote-worker",
+      keyAlgorithm: "ECDSA-P256",
+      issuer: "DigiCert",
+      sipDomain: "harbor.example",
+      fqdn: "rw.harbor.example",
+    }),
   },
   {
     id: "cert_nlt",
@@ -158,6 +220,13 @@ export const seedCerts: Certificate[] = [
     notAfter: isoInDays(2),
     tlsProfiles: ["TLS-Nice", "TLS-Infinity"],
     autoRenew: false,
+    requirements: certRequirements({
+      use: "itsp-trunk",
+      issuer: "Sectigo",
+      sipDomain: "northline.example",
+      fqdn: "sbc.northline.example",
+      peerCaImported: true,
+    }),
   },
   {
     id: "cert_ca",
@@ -169,6 +238,12 @@ export const seedCerts: Certificate[] = [
     notAfter: isoInDays(400),
     tlsProfiles: [],
     autoRenew: false,
+    requirements: certRequirements({
+      use: "ca",
+      issuer: "UMCSN Root CA",
+      publicTrusted: false,
+      peerCaImported: true,
+    }),
   },
 ];
 

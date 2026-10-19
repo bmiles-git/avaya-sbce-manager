@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { defaultRequirements } from "@/lib/cert-requirements";
 import { fakeCsr, isoInDays, uid } from "@/lib/format";
 import {
   seedAudits,
@@ -17,6 +18,7 @@ import type {
   AuditEvent,
   Certificate,
   CertRequest,
+  CertRequirements,
   ChannelMessage,
   Customer,
   Device,
@@ -64,6 +66,7 @@ interface AppState extends DataSlice {
   toggleMaintenance: (id: string) => void;
   setAccess: (id: string, access: Device["access"], endpoint: string) => void;
   renewCert: (certId: string, actor: string, sequentialHa: boolean) => string | null;
+  updateCert: (certId: string, patch: Partial<Pick<Certificate, "subject" | "sans">> & { requirements?: Partial<CertRequirements> }) => void;
   restoreSnapshot: (snapshotId: string, actor: string) => string | null;
   labelSnapshot: (snapshotId: string) => void;
   createRequest: (certId: string, notes: string, actor: string) => string | null;
@@ -301,6 +304,20 @@ export const useApp = create<AppState>()(
         return null;
       },
 
+      updateCert: (certId, patch) => {
+        set({
+          certs: get().certs.map((item) => {
+            if (item.id !== certId) return item;
+            return {
+              ...item,
+              subject: patch.subject ?? item.subject,
+              sans: patch.sans ?? item.sans,
+              requirements: { ...(item.requirements ?? defaultRequirements(item)), ...patch.requirements },
+            };
+          }),
+        });
+      },
+
       restoreSnapshot: (snapshotId, actor) => {
         const snap = get().snapshots.find((item) => item.id === snapshotId);
         const device = snap && get().devices.find((item) => item.id === snap.deviceId);
@@ -339,6 +356,8 @@ export const useApp = create<AppState>()(
             sans: cert.sans,
             device: device.name,
             profiles: cert.tlsProfiles,
+            keyAlgorithm: cert.requirements?.keyAlgorithm,
+            use: cert.requirements?.use,
           }),
           signedPem: "",
           token: uid("upl"),
@@ -513,7 +532,7 @@ export const useApp = create<AppState>()(
       },
     }),
     {
-      name: "sbce-control-v2",
+      name: "sbce-control-v3",
       skipHydration: true,
       partialize: (state) => ({
         session: state.session,
@@ -535,9 +554,20 @@ export const useApp = create<AppState>()(
         const saved = (persisted ?? {}) as Partial<AppState>;
         const profiles = saved.profiles ?? current.profiles;
         const scoped = profiles.every((item) => Boolean(item.customerId));
+        const incoming = saved.certs ?? [];
+        const known = new Map(current.certs.map((cert) => [cert.id, cert]));
+        const certs = incoming.length
+          ? [
+              ...incoming.map((cert) =>
+                cert.requirements ? cert : { ...cert, requirements: known.get(cert.id)?.requirements ?? defaultRequirements(cert) },
+              ),
+              ...current.certs.filter((cert) => !incoming.some((item) => item.id === cert.id)),
+            ]
+          : current.certs;
         return {
           ...current,
           ...saved,
+          certs,
           profiles: scoped ? profiles : current.profiles,
           selectedCustomerId: saved.selectedCustomerId || current.selectedCustomerId,
         };

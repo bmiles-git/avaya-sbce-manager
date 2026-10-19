@@ -61,6 +61,33 @@ export interface Device {
   apiUser: string;
 }
 
+export type CertUse = "teams-direct-routing" | "remote-worker" | "itsp-trunk" | "config-https" | "ems" | "ca";
+export type KeyAlgorithm = "ECDSA-P256" | "ECDSA-P384" | "RSA-2048" | "RSA-4096";
+export type PeerCheck = "none" | "required";
+
+export interface CertRequirements {
+  use: CertUse;
+  keyAlgorithm: KeyAlgorithm;
+  issuer: string;
+  publicTrusted: boolean;
+  avayaDemo: boolean;
+  tlsVersion: "1.2" | "1.3";
+  sipDomain: string;
+  extendedHostnameValidation: boolean;
+  customHostnames: string;
+  serverPeerVerification: PeerCheck;
+  clientPeerVerification: PeerCheck;
+  peerCaImported: boolean;
+  fqdn: string;
+  m365Domain: boolean;
+  signalingPort: number;
+  httpsPort: number;
+  srtp: boolean;
+  srtcp: boolean;
+  mki: boolean;
+  ciphers: string[];
+}
+
 export interface Certificate {
   id: string;
   deviceId: string;
@@ -71,6 +98,7 @@ export interface Certificate {
   notAfter: string;
   tlsProfiles: string[];
   autoRenew: boolean;
+  requirements: CertRequirements;
 }
 
 export interface Snapshot {
