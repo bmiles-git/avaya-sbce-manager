@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { daysLeft, formatDay, severityOf } from "@/lib/format";
-import { devicesFor } from "@/lib/scope";
+import { devicesFor, haPeer, isHaStandby } from "@/lib/scope";
 import { useApp } from "@/lib/store";
 import type { Certificate } from "@/lib/types";
 import { CertDetail } from "@/components/cert-detail";
@@ -21,7 +21,6 @@ export function Certificates() {
   const customerId = useApp((s) => s.selectedCustomerId);
   const [filter, setFilter] = useState<"all" | "critical" | "warning" | "auto">("all");
   const [plan, setPlan] = useState<{ cert: Certificate; dry: boolean } | null>(null);
-  const [ha, setHa] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
 
@@ -33,6 +32,7 @@ export function Certificates() {
 
   const rows = certs
     .filter((c) => scoped.has(c.deviceId))
+    .filter((c) => !isHaStandby(devices.find((device) => device.id === c.deviceId)))
     .filter((c) => (filter === "all" ? true : c.kind === "identity"))
     .filter((c) => {
       const tone = severityOf(c.notAfter);
@@ -77,6 +77,9 @@ export function Certificates() {
               const site = sites.find((s) => s.id === device?.siteId);
               const customer = customers.find((c) => c.id === site?.customerId);
               const tone = severityOf(cert.notAfter);
+              const peer = haPeer(devices, device);
+              const peerSite = sites.find((s) => s.id === peer?.siteId);
+              const place = peerSite && peerSite.id !== site?.id ? `${site?.name} / ${peerSite.name}` : site?.name;
               return (
                 <tr
                   key={cert.id}
@@ -84,9 +87,9 @@ export function Certificates() {
                   className={cert.id === selectedId ? "cursor-pointer border-t border-brass bg-raised" : "cursor-pointer border-t border-line"}
                 >
                   <td className="px-3 py-3">
-                    <div>{device?.name}</div>
+                    <div>{peer ? `${device?.name} + ${peer.name}` : device?.name}</div>
                     <div className="text-xs text-muted">
-                      {customer?.name} · {site?.name}
+                      {customer?.name} · {place}
                     </div>
                   </td>
                   <td className="px-3 py-3">
@@ -148,15 +151,10 @@ export function Certificates() {
             <li>Write a pre-change snapshot of networks, TLS profiles, and SIP flows.</li>
             <li>Upload the replacement PEM for {plan.cert.name} and overwrite by name.</li>
             <li>Point {plan.cert.tlsProfiles.join(", ") || "profiles"} at the new certificate.</li>
-            <li>Re-read the certificate and confirm the notAfter date moved.</li>
+            <li>Install on the active SBCE. The standby has the same certificate, so the same file is installed there after the health check.</li>
+            <li>Re-read the certificate on both nodes and confirm the notAfter date matches.</li>
             <li>Write the post-change snapshot. Keep the previous one for restore.</li>
           </ol>
-          {devices.find((d) => d.id === plan.cert.deviceId)?.haPairId ? (
-            <label className="mb-4 flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={ha} onChange={(e) => setHa(e.target.checked)} />
-              After a health check, repeat on the HA peer
-            </label>
-          ) : null}
           {error ? <p className="mb-3 text-sm text-danger">{error}</p> : null}
           <div className="flex gap-2">
             {plan.dry ? (
@@ -167,7 +165,7 @@ export function Certificates() {
               <Button
                 tone="primary"
                 onClick={() => {
-                  const message = renew(plan.cert.id, actor, ha);
+                  const message = renew(plan.cert.id, actor, true);
                   if (message) setError(message);
                   else setPlan(null);
                 }}

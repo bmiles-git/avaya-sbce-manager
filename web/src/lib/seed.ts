@@ -100,15 +100,15 @@ const seedCertRows: Array<Omit<Certificate, "issuance" | "acme">> = [
     deviceId: "d_a1",
     name: "trunk-genesis",
     kind: "identity",
-    subject: "CN=sbc-a1.umcsn.example",
-    sans: ["sbc-a1.umcsn.example", "sip.umcsn.example"],
+    subject: "CN=sip.umcsn.example",
+    sans: ["sip.umcsn.example"],
     notAfter: isoInDays(12),
     tlsProfiles: ["TLS-Trunk-Genesis", "TLS-Trunk-Infinity"],
     autoRenew: true,
     requirements: certRequirements({
       use: "itsp-trunk",
       sipDomain: "umcsn.example",
-      fqdn: "sbc-a1.umcsn.example",
+      fqdn: "sip.umcsn.example",
       issuer: "DigiCert",
     }),
   },
@@ -129,22 +129,6 @@ const seedCertRows: Array<Omit<Certificate, "issuance" | "acme">> = [
       issuer: "Avaya Demo",
       sipDomain: "umcsn.example",
       fqdn: "rw.umcsn.example",
-    }),
-  },
-  {
-    id: "cert_b1_pub",
-    deviceId: "d_b1",
-    name: "trunk-genesis",
-    kind: "identity",
-    subject: "CN=sbc-b1.umcsn.example",
-    sans: ["sbc-b1.umcsn.example"],
-    notAfter: isoInDays(4),
-    tlsProfiles: ["TLS-Trunk-Genesis"],
-    autoRenew: true,
-    requirements: certRequirements({
-      use: "itsp-trunk",
-      sipDomain: "umcsn.example",
-      fqdn: "sbc-b1.umcsn.example",
     }),
   },
   {
@@ -248,11 +232,24 @@ const seedCertRows: Array<Omit<Certificate, "issuance" | "acme">> = [
   },
 ];
 
-export const seedCerts: Certificate[] = seedCertRows.map((cert) => ({
-  ...cert,
-  issuance: cert.id === "cert_a1_teams" ? "managed-acme" : "customer-ca",
-  acme: blankAcme(cert.id),
-}));
+export const seedCerts: Certificate[] = seedCertRows
+  .map((cert): Certificate => ({
+    ...cert,
+    issuance: cert.id === "cert_a1_teams" ? "managed-acme" : "customer-ca",
+    acme: blankAcme(cert.id),
+  }))
+  .flatMap((cert) =>
+    cert.deviceId === "d_a1"
+      ? [
+          cert,
+          {
+            ...cert,
+            id: cert.id === "cert_ca" ? "cert_ca_b1" : cert.id.replace("a1", "b1"),
+            deviceId: "d_b1",
+          },
+        ]
+      : [cert],
+  );
 
 export const seedSnapshots: Snapshot[] = [
   {
@@ -270,7 +267,7 @@ export const seedSnapshots: Snapshot[] = [
     label: "pre-trunk change",
     trigger: "pre-change",
     createdAt: isoInDays(-3),
-    summary: "Standby captured before TLS profile edit",
+    summary: "Standby copy of the active configuration",
     knownGood: false,
   },
 ];

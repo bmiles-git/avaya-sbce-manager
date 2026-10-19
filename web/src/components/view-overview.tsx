@@ -1,4 +1,5 @@
 import { daysLeft, formatDay, severityOf } from "@/lib/format";
+import { isHaStandby } from "@/lib/scope";
 import { useApp } from "@/lib/store";
 import { Panel, Pill } from "@/components/ui";
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
@@ -15,6 +16,7 @@ export function Overview() {
 
   const rows = certs
     .filter((cert) => cert.kind === "identity")
+    .filter((cert) => !isHaStandby(devices.find((item) => item.id === cert.deviceId)))
     .map((cert) => {
       const device = devices.find((item) => item.id === cert.deviceId);
       const site = sites.find((item) => item.id === device?.siteId);

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { buildSampleChain } from "@/lib/cert-check";
 import { formatDay, formatWhen } from "@/lib/format";
-import { devicesFor } from "@/lib/scope";
+import { devicesFor, isHaStandby } from "@/lib/scope";
 import { useApp } from "@/lib/store";
 import { Button, Field, inputClass, Panel, Pill } from "@/components/ui";
 
@@ -32,7 +32,10 @@ export function Requests() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const deviceIds = new Set(devices.map((device) => device.id));
-  const trunks = certs.filter((cert) => cert.kind === "identity" && deviceIds.has(cert.deviceId));
+  const trunks = certs.filter((cert) => {
+    const device = allDevices.find((item) => item.id === cert.deviceId);
+    return cert.kind === "identity" && deviceIds.has(cert.deviceId) && !isHaStandby(device);
+  });
   const certIdSafe = trunks.some((cert) => cert.id === certId) ? certId : (trunks[0]?.id ?? "");
   const selected = trunks.find((cert) => cert.id === certIdSafe);
   const selectedDevice = devices.find((device) => device.id === selected?.deviceId);

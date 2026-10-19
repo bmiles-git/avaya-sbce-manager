@@ -175,6 +175,9 @@ function DeviceDetail({
           <dd>{peer?.name ?? "—"}</dd>
         </div>
       </dl>
+      {peer ? (
+        <p className="text-sm">This HA pair is one configuration. {device.name} and {peer.name} always carry the same certificates.</p>
+      ) : null}
       <div className="flex flex-wrap gap-2">
         <Button onClick={onLock} disabled={!admin}>
           {device.locked ? "Unlock" : "Lock"}

@@ -2,6 +2,51 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { defaultRequirements } from "@/lib/cert-requirements";
 import { blankAcme, buildManagedChain, checkReplacement } from "@/lib/cert-check";
+function sharedCert(source: Certificate) {
+  return {
+    subject: source.subject,
+    sans: source.sans,
+    notAfter: source.notAfter,
+    tlsProfiles: source.tlsProfiles,
+    autoRenew: source.autoRenew,
+    kind: source.kind,
+    issuance: source.issuance,
+    requirements: source.requirements,
+    acme: source.acme,
+  };
+}
+
+function copyOntoPeer(certs: Certificate[], devices: Device[], source: Certificate): Certificate[] {
+  const device = devices.find((item) => item.id === source.deviceId);
+  if (!device?.haPairId) return certs;
+  const peer = devices.find((item) => item.haPairId === device.haPairId && item.id !== device.id);
+  if (!peer) return certs;
+  const shared = sharedCert(source);
+  const existing = certs.find((item) => item.deviceId === peer.id && item.name === source.name);
+  if (!existing) return [...certs, { ...source, ...shared, id: `${source.id}_peer`, deviceId: peer.id }];
+  return certs.map((item) => (item.id === existing.id ? { ...item, ...shared } : item));
+}
+
+function syncHaCerts(certs: Certificate[], devices: Device[]): Certificate[] {
+  let next = certs.map((cert) => {
+    if (cert.id === "cert_a1_pub" && /sbc-a1\.umcsn\.example/.test(cert.subject)) {
+      return {
+        ...cert,
+        subject: "CN=sip.umcsn.example",
+        sans: ["sip.umcsn.example"],
+        requirements: { ...cert.requirements, fqdn: "sip.umcsn.example" },
+      };
+    }
+    return cert;
+  });
+  for (const device of devices.filter((item) => item.role === "ha-active")) {
+    for (const cert of next.filter((item) => item.deviceId === device.id)) {
+      const current = next.find((item) => item.id === cert.id) ?? cert;
+      next = copyOntoPeer(next, devices, current);
+    }
+  }
+  return next;
+}
 import { fakeCsr, isoInDays, uid } from "@/lib/format";
 import {
   seedAudits,
@@ -288,28 +333,26 @@ export const useApp = create<AppState>()(
         if (device.maintenance) return `${device.name} is in maintenance mode.`;
         const pre = snapshotFor(device, "pre-change", `Before replacing ${cert.name}`);
         const nextExpiry = isoInDays(90);
-        const updated = get().certs.map((item) => (item.id === certId ? { ...item, notAfter: nextExpiry } : item));
+        const peer = device.haPairId
+          ? get().devices.find((item) => item.haPairId === device.haPairId && item.id !== device.id)
+          : undefined;
+        const updated = syncHaCerts(
+          get().certs.map((item) => (item.id === certId ? { ...item, notAfter: nextExpiry } : item)),
+          get().devices,
+        );
         const extra: Snapshot[] = [pre, snapshotFor(device, "post-change", `Installed ${cert.name}, expires in 90 days`)];
         const events = [
           audit(actor, "cert.renew", `${device.name} / ${cert.name}`, "Uploaded identity cert and updated TLS profiles"),
         ];
-        if (sequentialHa && device.haPairId) {
-          const peer = get().devices.find((item) => item.haPairId === device.haPairId && item.id !== device.id);
-          const peerCert = peer && get().certs.find((item) => item.deviceId === peer.id && item.name === cert.name);
-          if (peer && peerCert && !peer.locked && !peer.maintenance) {
-            const idx = updated.findIndex((item) => item.id === peerCert.id);
-            if (idx >= 0) updated[idx] = { ...updated[idx], notAfter: nextExpiry };
-            extra.push(snapshotFor(peer, "post-change", `HA peer ${cert.name} updated after health check`));
-            events.unshift(
-              audit(actor, "cert.renew", `${peer.name} / ${peerCert.name}`, "Sequential HA follow-up after health check"),
-            );
-          }
+        if (peer && !peer.locked && !peer.maintenance) {
+          extra.push(snapshotFor(peer, "post-change", `Standby ${peer.name} updated with the same ${cert.name}`));
+          events.unshift(audit(actor, "cert.renew", `${peer.name} / ${cert.name}`, "HA standby kept identical after the health check"));
         }
         set({
           certs: updated,
           snapshots: [...extra, ...get().snapshots],
           audits: [...events, ...get().audits],
-          toasts: [toast(`${cert.name} on ${device.name} renewed for 90 days.`, "ok"), ...get().toasts],
+          toasts: [toast(`${cert.name} renewed for 90 days on ${device.name}${peer ? ` and ${peer.name}` : ""}.`, "ok"), ...get().toasts],
         });
         return null;
       },
@@ -357,19 +400,19 @@ export const useApp = create<AppState>()(
       },
 
       updateCert: (certId, patch) => {
-        set({
-          certs: get().certs.map((item) => {
-            if (item.id !== certId) return item;
-            return {
-              ...item,
-              subject: patch.subject ?? item.subject,
-              sans: patch.sans ?? item.sans,
-              issuance: patch.issuance ?? item.issuance ?? "customer-ca",
-              acme: { ...(item.acme ?? blankAcme(item.id)), ...patch.acme },
-              requirements: { ...(item.requirements ?? defaultRequirements(item)), ...patch.requirements },
-            };
-          }),
+        const devices = get().devices;
+        const certs = get().certs.map((item) => {
+          if (item.id !== certId) return item;
+          return {
+            ...item,
+            subject: patch.subject ?? item.subject,
+            sans: patch.sans ?? item.sans,
+            issuance: patch.issuance ?? item.issuance ?? "customer-ca",
+            acme: { ...(item.acme ?? blankAcme(item.id)), ...patch.acme },
+            requirements: { ...(item.requirements ?? defaultRequirements(item)), ...patch.requirements },
+          };
         });
+        set({ certs: syncHaCerts(certs, devices) });
       },
 
       restoreSnapshot: (snapshotId, actor) => {
@@ -590,8 +633,11 @@ export const useApp = create<AppState>()(
         if (row.status !== "chain_review") return "No new root is waiting for acceptance.";
         const supplier = (row.chainNote.match(/Root: ([^.]+)/)?.[1] ?? "new supplier").split(" ")[0];
         set({
-          certs: get().certs.map((item) =>
-            item.id === cert.id ? { ...item, requirements: { ...item.requirements, issuer: supplier, peerCaImported: true } } : item,
+          certs: syncHaCerts(
+            get().certs.map((item) =>
+              item.id === cert.id ? { ...item, requirements: { ...item.requirements, issuer: supplier, peerCaImported: true } } : item,
+            ),
+            get().devices,
           ),
           requests: get().requests.map((item) =>
             item.id === id
@@ -619,30 +665,33 @@ export const useApp = create<AppState>()(
         const match = get().certs.find((item) => item.deviceId === device.id && item.name === row.certName);
         const managed = match?.issuance === "managed-acme";
         const days = managed ? 90 : 365;
+        const peer = device.haPairId ? get().devices.find((item) => item.haPairId === device.haPairId && item.id !== device.id) : undefined;
+        const installed = get().certs.map((item) =>
+          match && item.id === match.id
+            ? {
+                ...item,
+                notAfter: isoInDays(days),
+                requirements: managed ? { ...item.requirements, issuer: "Let's Encrypt", publicTrusted: true } : item.requirements,
+                acme: managed ? { ...(item.acme ?? blankAcme(item.id)), status: "ready" as const, lastError: "" } : item.acme,
+              }
+            : item,
+        );
         set({
-          certs: get().certs.map((item) =>
-            match && item.id === match.id
-              ? {
-                  ...item,
-                  notAfter: isoInDays(days),
-                  requirements: managed ? { ...item.requirements, issuer: "Let's Encrypt", publicTrusted: true } : item.requirements,
-                  acme: managed ? { ...(item.acme ?? blankAcme(item.id)), status: "ready", lastError: "" } : item.acme,
-                }
-              : item,
-          ),
+          certs: syncHaCerts(installed, get().devices),
           requests: get().requests.map((item) =>
             item.id === id ? { ...item, status: "completed", updatedAt: new Date().toISOString() } : item,
           ),
           snapshots: [
             snapshotFor(device, "pre-change", `Before applying returned cert ${row.certName}`),
             snapshotFor(device, "post-change", managed ? `Applied Let's Encrypt chain for ${row.certName}` : `Applied customer-signed ${row.certName}`),
+            ...(peer && !peer.locked ? [snapshotFor(peer, "post-change", `Standby ${peer.name} received the same ${row.certName}`)] : []),
             ...get().snapshots,
           ],
           audits: [
             audit(actor, "request.apply", `${device.name} / ${row.certName}`, managed ? "Let's Encrypt leaf and intermediate installed" : "TLS profiles updated"),
             ...get().audits,
           ],
-          toasts: [toast(managed ? `Let's Encrypt certificate applied to ${device.name} for 90 days.` : `Applied signed certificate to ${device.name}.`, "ok"), ...get().toasts],
+          toasts: [toast(managed ? `Let's Encrypt certificate applied to ${device.name}${peer ? ` and ${peer.name}` : ""} for 90 days.` : `Applied signed certificate to ${device.name}${peer ? ` and ${peer.name}` : ""}.`, "ok"), ...get().toasts],
         });
         return null;
       },
@@ -757,7 +806,7 @@ export const useApp = create<AppState>()(
         return {
           ...current,
           ...saved,
-          certs,
+          certs: syncHaCerts(certs, saved.devices ?? current.devices),
           profiles: scoped ? profiles : current.profiles,
           selectedCustomerId: saved.selectedCustomerId || current.selectedCustomerId,
         };

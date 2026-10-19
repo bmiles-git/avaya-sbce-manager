@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { acmeNames } from "@/lib/cert-check";
+import { haPeer } from "@/lib/scope";
 import { findingsFor, TEAMS_CIPHERS, USE_LABEL } from "@/lib/cert-requirements";
 import { useApp } from "@/lib/store";
 import type { CertRequirements, CertUse, IssuanceMode, KeyAlgorithm, PeerCheck } from "@/lib/types";
@@ -8,6 +9,7 @@ import { Button, Field, inputClass, Panel } from "@/components/ui";
 export function CertDetail({ certId }: { certId: string }) {
   const cert = useApp((s) => s.certs.find((item) => item.id === certId));
   const device = useApp((s) => s.devices.find((item) => item.id === cert?.deviceId));
+  const peer = useApp((s) => haPeer(s.devices, s.devices.find((item) => item.id === cert?.deviceId)));
   const update = useApp((s) => s.updateCert);
   const renewManaged = useApp((s) => s.renewManaged);
   const actor = useApp((s) => s.session?.name ?? "admin");
@@ -25,7 +27,10 @@ export function CertDetail({ certId }: { certId: string }) {
 
   return (
     <div className="space-y-4">
-      <Panel title={`${device?.name ?? "Device"} · ${cert.name}`}>
+      <Panel title={`${device?.name ?? "Device"}${peer ? ` + ${peer.name}` : ""} · ${cert.name}`}>
+        {peer ? (
+          <p className="mb-3 text-sm text-muted">HA pair. {peer.name} carries this same certificate. A change is installed on the active, then on the standby after the health check.</p>
+        ) : null}
         <div className="space-y-3">
           <Field label="Use">
             <select
