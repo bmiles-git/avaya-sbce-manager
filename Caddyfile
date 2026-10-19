@@ -1,11 +1,9 @@
-# Public console. Entra ID sign-in and customer certificate upload.
-# Replace example.com. Port 80 must stay open so Let's Encrypt can issue this certificate.
-example.com {
+# SITE_ADDRESS comes from .env. Port 80 must be reachable so Let's Encrypt can issue.
+{$SITE_ADDRESS} {
 	reverse_proxy web:8080
 }
 
-# Break-glass local accounts. Same site, separate listener so the firewall can
-# refuse the public internet. Prefer binding 8443 to a management address.
+# Local accounts. Bind this listener to the management address in .env (ADMIN_BIND).
 :8443 {
 	tls internal
 	reverse_proxy web:8080

@@ -4,9 +4,9 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      # Do not leave this on 0.0.0.0 in production. Bind a management address:
-      # - "10.40.8.10:8443:8443"
-      - "8443:8443"
+      - "${ADMIN_BIND:-127.0.0.1}:8443:8443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-example.com}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
@@ -23,15 +23,16 @@ services:
     restart: unless-stopped
 
   app:
+    profiles: ["api"]
     build: .
     expose:
       - "8000"
     volumes:
       - ./data:/app/data
     environment:
-      - DATABASE_URL=sqlite:////app/data/sbce_manager.db
-      - SECRET_KEY=change-me-in-production
-      - ENCRYPTION_KEY=change-me-in-production-32bytes!!
+      DATABASE_URL: sqlite:////app/data/sbce_manager.db
+      SECRET_KEY: ${SECRET_KEY:-change-me}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-change-me-in-production-32bytes!!}
     restart: unless-stopped
 
 volumes:

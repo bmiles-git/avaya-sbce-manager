@@ -1,25 +1,32 @@
 # Avaya SBCE Manager
 
-Console for Avaya Session Border Controller for Enterprise 10.2. The site you sign in to is [`web/`](web/). Caddy terminates TLS in front of it.
+Console for Avaya Session Border Controller for Enterprise 10.2. Caddy serves [`web/`](web/) on port 443 and on port 8443.
 
-Replace `sbce.example.com` and `10.40.8.10` below with the console's public name and the address of this host on the management network.
+Do the steps in order. Starting Docker before DNS and the firewall is the usual reason the first certificate request fails.
 
-## Install Docker
+What you need before step 1:
 
-The image is built from a git checkout on the host. Docker does not download the source.
+- A public name, such as `sbce.example.com`
+- The public address of this host
+- The address of this host on the management network, such as `10.40.8.10`
+- The management subnet that is allowed to open port 8443, such as `10.40.0.0/16`
+
+This brings up the console. It does not log in to an SBCE, open a SAL session, or renew a trunk certificate. Customers, devices, and passwords are stored in the browser that signs in. Two people do not share that data. **Continue with Entra ID** is not a real Entra login yet. Do not put the name on the public internet until that button is a real login, unless you accept that anyone who can open the site can see the rehearsal.
+
+## 1. Install Docker and git
 
 Rocky, RHEL, or Alma:
 
 ```bash
 sudo dnf -y install git dnf-plugins-core
 sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-sudo dnf -y install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+sudo dnf -y install docker-ce docker-ce-cli containerd.io docker-compose-plugin firewalld
 sudo systemctl enable --now docker
-docker version
-docker compose version
+sudo docker version
+sudo docker compose version
 ```
 
-Ubuntu or Debian:
+Ubuntu:
 
 ```bash
 sudo apt-get update
@@ -31,89 +38,57 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.
 sudo apt-get update
 sudo apt-get -y install docker-ce docker-ce-cli containerd.io docker-compose-plugin
 sudo systemctl enable --now docker
-docker version
-docker compose version
+sudo docker version
+sudo docker compose version
 ```
 
-On Debian, change `ubuntu` in the repository line to `debian`.
+On Debian, change `ubuntu` in that repository line to `debian`.
 
-## Clone
+## 2. Clone
+
+Clone as your user, not as root. A root-owned checkout makes the next `git pull` fail.
 
 ```bash
-sudo git clone https://github.com/bmiles-git/avaya-sbce-manager.git /opt/avaya-sbce-manager
+sudo mkdir -p /opt/avaya-sbce-manager
+sudo chown "$USER:$USER" /opt/avaya-sbce-manager
+git clone https://github.com/bmiles-git/avaya-sbce-manager.git /opt/avaya-sbce-manager
 cd /opt/avaya-sbce-manager
-sudo git checkout main
-sudo sed -i 's/example.com/sbce.example.com/' Caddyfile
+git checkout main
 ```
 
-Point a DNS A or AAAA record for `sbce.example.com` at this host before the next step. Let's Encrypt will not issue a certificate without it.
-
-## Docker
-
-`docker compose build` uses the checkout in `/opt/avaya-sbce-manager`. The Dockerfile copies that directory. It does not clone or download the app again.
-
-```bash
-cd /opt/avaya-sbce-manager
-sudo docker compose build
-sudo docker compose up -d
-sudo docker compose ps
-sudo docker compose logs -f caddy
-```
-
-Leave the log with Ctrl-C. The containers keep running.
-
-Update from git, then rebuild:
+## 3. Set the name and the management address
 
 ```bash
 cd /opt/avaya-sbce-manager
-sudo git pull --ff-only
-sudo docker compose up -d --build
+cp .env.example .env
 ```
 
-Other commands:
+Edit `.env`:
 
 ```bash
-sudo docker compose restart
-sudo docker compose logs -f web
-sudo docker compose down
+SITE_ADDRESS=sbce.example.com
+ADMIN_BIND=10.40.8.10
 ```
 
-`down` stops the site. It does not delete the Caddy certificate volume. `sudo docker compose down -v` does, and the next start asks Let's Encrypt again.
+`SITE_ADDRESS` is the public name. `ADMIN_BIND` is the management address. Port 8443 listens only on that address. If you leave it unset, it listens on `127.0.0.1` only. Do not set it to `0.0.0.0`.
 
-Check the listeners:
+`.env` is not committed. Do not edit `Caddyfile` to put the name in it. The next pull would conflict.
+
+## 4. Publish DNS
+
+Create an A or AAAA record for `sbce.example.com` that points at this host's public address. Wait until it answers:
 
 ```bash
-curl -fsSI https://sbce.example.com
-curl -kfsSI https://sbce.example.com:8443
+getent hosts sbce.example.com
 ```
 
-`-k` is only for 8443, because that listener uses Caddy's internal certificate.
+Let's Encrypt will not issue a certificate until that name reaches this host from the internet.
 
-- `https://sbce.example.com` is the public console (port 443).
-- `https://sbce.example.com:8443` is the local-account listener.
+## 5. Open the firewall, then start Docker again
 
-Caddy obtains and renews the certificate on port 443. Port 8443 uses Caddy's internal certificate so it can stay off the public internet. The browser will warn on 8443 until you trust that certificate or replace `tls internal` in the Caddyfile.
+Docker ignores a firewall rule for a port it publishes on every interface. Port 443 is public. Port 8443 is limited by `ADMIN_BIND`. Apply the firewall before the first start.
 
-Do not publish port 8080 or 8000. `docker compose ps` should show them as exposed, not as `0.0.0.0:8080`.
-
-## Firewall on this host
-
-Docker publishes 80, 443, and 8443 in its own iptables chain. A firewall rule does not close a port that Docker has published on `0.0.0.0`. Bind 8443 to the management address first.
-
-In `docker-compose.yml`, change the 8443 mapping to:
-
-```yaml
-- "10.40.8.10:8443:8443"
-```
-
-Then recreate:
-
-```bash
-cd /opt/avaya-sbce-manager
-sudo docker compose up -d
-```
-
-firewalld (Rocky, RHEL, Alma):
+firewalld:
 
 ```bash
 sudo systemctl enable --now firewalld
@@ -121,12 +96,13 @@ sudo firewall-cmd --permanent --add-service=http
 sudo firewall-cmd --permanent --add-service=https
 sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="10.40.0.0/16" port port="8443" protocol="tcp" accept'
 sudo firewall-cmd --reload
+sudo systemctl restart docker
 sudo firewall-cmd --list-all
 ```
 
-Change `10.40.0.0/16` to the Gage management network. Do not add 8443 as a public service.
+Change `10.40.0.0/16` to the management subnet. Do not add 8443 as a public service.
 
-ufw (Ubuntu):
+ufw:
 
 ```bash
 sudo ufw default deny incoming
@@ -138,38 +114,69 @@ sudo ufw deny 8080/tcp
 sudo ufw deny 8000/tcp
 sudo ufw enable
 sudo ufw status verbose
+sudo systemctl restart docker
 ```
 
-If 8443 is still reachable from the internet after this, Docker published it on every interface. The compose bind above is what closes it.
+Outbound, this host also needs tcp/443 to each EMS or SBCE management address, tcp/443 to Let's Encrypt, and DNS to your resolvers. No other inbound port is required.
 
-Outbound from this host, allow:
+## 6. Build and start
 
-- tcp/443 to each EMS or SBCE management address
-- tcp/443 to Let's Encrypt and, if you use one, the DNS provider
-- udp/tcp 53 to your resolvers
+```bash
+cd /opt/avaya-sbce-manager
+sudo docker compose build
+sudo docker compose up -d
+sudo docker compose ps
+```
 
-No other inbound port is required.
+`ps` should show `caddy` and `web`. It should not show `app`. The Python service is not part of this start. Ports 8080 and 8000 should not be listed as `0.0.0.0`.
 
-## Firewall on the SBCE
+Watch Caddy until it obtains a certificate. Ctrl-C leaves the containers running.
 
-On the 10.2 management interface, allow this host to tcp/443 and leave the default drop in place. Do not open tcp/222 for this console. Do not write certificates through a data interface.
+```bash
+sudo docker compose logs -f caddy
+```
 
-An HA pair is one configuration. This host still needs tcp/443 to both management addresses, because the active is installed first and the standby after the health check.
+You want a line that the certificate was obtained for `sbce.example.com`. If it says the name did not resolve or port 80 timed out, fix DNS or the firewall, then:
 
-If a management address is private, use the customer VPN or SAL. The customer does not need that path to return a certificate. The upload link is on port 443 of this console.
+```bash
+sudo docker compose restart caddy
+```
 
-For a managed trunk, publish:
+## 7. Check both listeners
 
-`_acme-challenge.<fqdn>` CNAME `<certificate id>.acme.gagetech.net`
+From this host:
 
-Do not put an HTTP challenge on the SBCE.
+```bash
+curl -fsSI https://sbce.example.com
+curl -kfsSI https://10.40.8.10:8443
+```
 
-## First account
+`-k` is only for 8443. That listener uses Caddy's internal certificate, so a browser warns until you trust it. Port 443 uses the Let's Encrypt certificate.
 
-Sign in on port 8443 as `admin`. The starting password is `harbor-admin`. Open **Users** and set a new password before anyone else uses the host.
+From outside the management network, `https://sbce.example.com:8443` should fail. If it answers, `ADMIN_BIND` is still `0.0.0.0` or the container was started before you set `.env`. Run `sudo docker compose up -d` again after fixing `.env`.
 
-The sample user `harbor` / `lookout` can see only Harbor Health. Remove that account before go-live. **Reset demo** restores both sample passwords and the sample customers.
+## 8. First sign-in
 
-An administrator with no customers selected can see every customer. An operator must be assigned at least one. Entra ID on port 443 is still a full administrator. Local accounts are the ones you scope to a customer.
+Open `https://10.40.8.10:8443`. Sign in as `admin` / `harbor-admin`. Open **Users**, set a new admin password, and remove the user `harbor`. **Reset demo** puts both sample passwords back.
 
-Accounts are kept in the console data on this build. The password is stored as a SHA-256 of the username and the password, not as plain text. This is not yet a shared server directory.
+An administrator with no customers selected sees every customer. An operator must be assigned at least one.
+
+## 9. Update later
+
+```bash
+cd /opt/avaya-sbce-manager
+git pull --ff-only
+sudo docker compose up -d --build
+```
+
+`sudo docker compose down` stops the site and keeps the certificate. `sudo docker compose down -v` deletes the certificate, and the next start asks Let's Encrypt again.
+
+## SBCE firewall
+
+On the 10.2 management interface, allow this host to tcp/443 and leave the default drop. Do not open tcp/222 for this console.
+
+An HA pair is one configuration. This host still needs tcp/443 to both management addresses. The active is written first, then the standby after the health check.
+
+If the management address is private, use the customer VPN or SAL. The customer does not need that path to return a certificate. The upload link is on port 443 of this console.
+
+For a managed trunk, publish `_acme-challenge.<fqdn>` as a CNAME to `<certificate id>.acme.gagetech.net`. Do not put an HTTP challenge on the SBCE.
