@@ -6,50 +6,40 @@ import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
 export function Overview() {
   const certs = useApp((s) => s.certs);
   const devices = useApp((s) => s.devices);
-  const requests = useApp((s) => s.requests);
-  const audits = useApp((s) => s.audits);
+  const sites = useApp((s) => s.sites);
+  const customers = useApp((s) => s.customers);
   const profiles = useApp((s) => s.profiles);
   const acks = useApp((s) => s.acks);
   const ackAlert = useApp((s) => s.ackAlert);
   const openCert = useApp((s) => s.openCert);
-  const setView = useApp((s) => s.setView);
-  const profile = profiles[0];
-  const warn = profile?.warnDays ?? 30;
-  const critical = profile?.criticalDays ?? 7;
+
+  const rows = certs
+    .filter((cert) => cert.kind === "identity")
+    .map((cert) => {
+      const device = devices.find((item) => item.id === cert.deviceId);
+      const site = sites.find((item) => item.id === device?.siteId);
+      const customer = customers.find((item) => item.id === site?.customerId);
+      const profile = profiles.find((item) => item.customerId === customer?.id);
+      const warn = profile?.warnDays ?? 30;
+      const critical = profile?.criticalDays ?? 7;
+      return { cert, device, site, customer, warn, critical, left: daysLeft(cert.notAfter) };
+    })
+    .filter((row) => row.left <= row.warn)
+    .sort((a, b) => a.left - b.left);
 
   const buckets = [
-    { name: "≤7d", count: certs.filter((c) => daysLeft(c.notAfter) <= critical).length },
-    { name: "8–30d", count: certs.filter((c) => daysLeft(c.notAfter) > critical && daysLeft(c.notAfter) <= warn).length },
-    { name: "Later", count: certs.filter((c) => daysLeft(c.notAfter) > warn).length },
+    { name: "≤7d", count: rows.filter((row) => row.left <= 7).length },
+    { name: "8–30d", count: rows.filter((row) => row.left > 7 && row.left <= 30).length },
+    { name: "Inside window", count: rows.filter((row) => row.left > 30).length },
   ];
-
-  const upcoming = [...certs]
-    .filter((c) => c.kind === "identity")
-    .sort((a, b) => daysLeft(a.notAfter) - daysLeft(b.notAfter))
-    .slice(0, 5);
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {[
-          ["Devices", String(devices.length), "inventory"],
-          ["Critical certs", String(buckets[0].count), "certificates"],
-          ["Open requests", String(requests.filter((r) => !["completed", "cancelled"].includes(r.status)).length), "requests"],
-          ["Locked", String(devices.filter((d) => d.locked).length), "inventory"],
-        ].map(([label, value, view]) => (
-          <button
-            key={label}
-            onClick={() => setView(view as "inventory")}
-            className="rounded-md border border-line bg-surface px-4 py-3 text-left hover:border-brass"
-          >
-            <p className="text-xs text-muted">{label}</p>
-            <p className="mt-1 font-mono text-2xl">{value}</p>
-          </button>
-        ))}
-      </div>
-
+      <p className="text-sm text-muted">
+        Blended across every customer. Opening an alarm switches into that customer.
+      </p>
       <div className="grid gap-4 lg:grid-cols-5">
-        <Panel title="Expiration window" className="lg:col-span-2">
+        <Panel title="All customers" className="lg:col-span-2">
           <div className="h-48">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={buckets}>
@@ -60,54 +50,48 @@ export function Overview() {
             </ResponsiveContainer>
           </div>
         </Panel>
-        <Panel title="Needs attention" className="lg:col-span-3" action={<span className="text-xs text-muted">Identity certificates</span>}>
-          <ul className="divide-y divide-line">
-            {upcoming.map((cert) => {
-              const device = devices.find((d) => d.id === cert.deviceId);
-              const tone = severityOf(cert.notAfter, warn, critical);
-              const key = cert.id;
-              return (
-                <li key={cert.id} className="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0 last:pb-0">
-                  <button
-                    type="button"
-                    className="min-h-11 min-w-0 flex-1 rounded-md px-2 text-left hover:bg-raised"
-                    onClick={() => openCert(cert.id)}
-                  >
-                    <p className="text-sm">{device?.name}</p>
-                    <p className="text-xs text-muted">
-                      {cert.name} · {formatDay(cert.notAfter)} · {daysLeft(cert.notAfter)} days
-                    </p>
-                  </button>
-                  <div className="flex items-center gap-2">
-                    <Pill tone={tone}>{tone}</Pill>
+        <Panel
+          title="Alarms"
+          className="lg:col-span-3"
+          action={<span className="text-xs text-muted">{rows.length} open</span>}
+        >
+          {rows.length === 0 ? (
+            <p className="text-sm text-muted">Nothing is inside a customer warning window.</p>
+          ) : (
+            <ul className="divide-y divide-line">
+              {rows.map((row) => {
+                const tone = severityOf(row.cert.notAfter, row.warn, row.critical);
+                return (
+                  <li key={row.cert.id} className="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0 last:pb-0">
                     <button
-                      className="text-xs text-brass disabled:text-muted"
-                      disabled={acks.includes(key)}
-                      onClick={() => ackAlert(key)}
+                      type="button"
+                      className="min-h-11 min-w-0 flex-1 rounded-md px-2 text-left hover:bg-raised"
+                      onClick={() => openCert(row.cert.id)}
                     >
-                      {acks.includes(key) ? "Acked" : "Acknowledge"}
+                      <p className="text-sm">
+                        {row.customer?.name} · {row.device?.name}
+                      </p>
+                      <p className="text-xs text-muted">
+                        {row.site?.name} · {row.cert.name} · {formatDay(row.cert.notAfter)} · {row.left} days
+                      </p>
                     </button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+                    <div className="flex items-center gap-2">
+                      <Pill tone={tone}>{tone}</Pill>
+                      <button
+                        className="text-xs text-brass disabled:text-muted"
+                        disabled={acks.includes(row.cert.id)}
+                        onClick={() => ackAlert(row.cert.id)}
+                      >
+                        {acks.includes(row.cert.id) ? "Acked" : "Acknowledge"}
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </Panel>
       </div>
-
-      <Panel title="Recent audit">
-        <ul className="space-y-2">
-          {audits.slice(0, 4).map((event) => (
-            <li key={event.id} className="flex flex-wrap justify-between gap-2 text-sm">
-              <span>
-                <span className="font-mono text-xs text-brass">{event.action}</span>
-                <span className="mx-2 text-muted">{event.target}</span>
-              </span>
-              <span className="text-xs text-muted">{event.actor}</span>
-            </li>
-          ))}
-        </ul>
-      </Panel>
     </div>
   );
 }

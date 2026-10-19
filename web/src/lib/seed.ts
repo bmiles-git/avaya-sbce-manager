@@ -210,17 +210,42 @@ export const seedRequests: CertRequest[] = [
   },
 ];
 
+export const defaultTemplate =
+  "{{severity}} · {{customer.name}} / {{site.name}}\n{{device.name}} certificate {{cert.name}} expires {{cert.expires}} ({{cert.days_remaining}} days).\nProfiles: {{tls_profiles}}";
+
 export const seedProfiles: ReportProfile[] = [
   {
-    id: "rp_ops",
-    name: "Operations digest",
+    id: "rp_umcsn",
+    customerId: "c_umcsn",
+    name: "UMCSN alerts",
     warnDays: 30,
     criticalDays: 7,
-    teamsChannel: "SBCE Operations / Certificate Alerts",
-    emailTo: "voice-ops@example.com",
+    teamsChannel: "UMCSN Voice / Certificate Alerts",
+    emailTo: "voice-ops@umcsn.example",
     quietHours: true,
-    template:
-      "{{severity}} · {{customer.name}} / {{site.name}}\n{{device.name}} certificate {{cert.name}} expires {{cert.expires}} ({{cert.days_remaining}} days).\nProfiles: {{tls_profiles}}",
+    template: defaultTemplate,
+  },
+  {
+    id: "rp_harbor",
+    customerId: "c_harbor",
+    name: "Harbor Health alerts",
+    warnDays: 21,
+    criticalDays: 7,
+    teamsChannel: "Harbor Health / Voice Ops",
+    emailTo: "voice@harbor.example",
+    quietHours: true,
+    template: defaultTemplate,
+  },
+  {
+    id: "rp_north",
+    customerId: "c_north",
+    name: "Northline alerts",
+    warnDays: 14,
+    criticalDays: 3,
+    teamsChannel: "Northline Transit / ITSPs",
+    emailTo: "noc@northline.example",
+    quietHours: false,
+    template: defaultTemplate,
   },
 ];
 

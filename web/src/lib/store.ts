@@ -11,6 +11,7 @@ import {
   seedRequests,
   seedSites,
   seedSnapshots,
+  defaultTemplate,
 } from "@/lib/seed";
 import type {
   AuditEvent,
@@ -43,6 +44,7 @@ interface DataSlice {
 interface AppState extends DataSlice {
   session: Session | null;
   view: ViewId;
+  selectedCustomerId: string;
   selectedDeviceId: string | null;
   focusCertId: string | null;
   toasts: Toast[];
@@ -50,6 +52,7 @@ interface AppState extends DataSlice {
   signInEntra: () => void;
   signOut: () => void;
   setView: (view: ViewId) => void;
+  selectCustomer: (id: string) => void;
   selectDevice: (id: string | null) => void;
   openCert: (certId: string) => void;
   dismissToast: (id: string) => void;
@@ -70,6 +73,7 @@ interface AppState extends DataSlice {
   uploadSigned: (token: string, pem: string) => string | null;
   applyRequest: (id: string, actor: string) => string | null;
   updateProfile: (id: string, patch: Partial<ReportProfile>) => void;
+  createProfile: (customerId: string) => void;
   sendTest: (profileId: string, actor: string) => void;
   ackAlert: (key: string) => void;
   resetDemo: () => void;
@@ -116,6 +120,7 @@ export const useApp = create<AppState>()(
       ...data(),
       session: null,
       view: "overview",
+      selectedCustomerId: "c_umcsn",
       selectedDeviceId: "d_a1",
       focusCertId: null,
       toasts: [],
@@ -148,12 +153,33 @@ export const useApp = create<AppState>()(
 
       signOut: () => set({ session: null, view: "overview" }),
       setView: (view) => set({ view }),
-      selectDevice: (id) => set({ selectedDeviceId: id, view: "inventory" }),
+      selectCustomer: (id) => {
+        const siteIds = new Set(get().sites.filter((site) => site.customerId === id).map((site) => site.id));
+        const devices = get().devices.filter((device) => siteIds.has(device.siteId));
+        const current = get().selectedDeviceId;
+        set({
+          selectedCustomerId: id,
+          selectedDeviceId: devices.some((device) => device.id === current) ? current : (devices[0]?.id ?? null),
+          focusCertId: null,
+        });
+      },
+      selectDevice: (id) => {
+        const device = get().devices.find((item) => item.id === id);
+        const site = get().sites.find((item) => item.id === device?.siteId);
+        set({
+          selectedDeviceId: id,
+          selectedCustomerId: site?.customerId ?? get().selectedCustomerId,
+          view: "inventory",
+        });
+      },
       openCert: (certId) => {
         const cert = get().certs.find((item) => item.id === certId);
+        const device = get().devices.find((item) => item.id === cert?.deviceId);
+        const site = get().sites.find((item) => item.id === device?.siteId);
         set({
           focusCertId: certId,
           selectedDeviceId: cert?.deviceId ?? get().selectedDeviceId,
+          selectedCustomerId: site?.customerId ?? get().selectedCustomerId,
           view: "certificates",
         });
       },
@@ -162,8 +188,22 @@ export const useApp = create<AppState>()(
       addCustomer: (input) => {
         const row: Customer = { ...input, id: uid("c") };
         const actor = get().session?.name ?? "admin";
+        const profile: ReportProfile = {
+          id: uid("rp"),
+          customerId: row.id,
+          name: `${row.name} alerts`,
+          warnDays: 30,
+          criticalDays: 7,
+          teamsChannel: "",
+          emailTo: "",
+          quietHours: true,
+          template: defaultTemplate,
+        };
         set({
           customers: [...get().customers, row],
+          profiles: [...get().profiles, profile],
+          selectedCustomerId: row.id,
+          selectedDeviceId: null,
           audits: [audit(actor, "customer.create", row.name, `Code ${row.code}`), ...get().audits],
           toasts: [toast(`Customer ${row.name} added.`, "ok"), ...get().toasts],
         });
@@ -389,6 +429,23 @@ export const useApp = create<AppState>()(
         });
       },
 
+      createProfile: (customerId) => {
+        if (get().profiles.some((item) => item.customerId === customerId)) return;
+        const customer = get().customers.find((item) => item.id === customerId);
+        const profile: ReportProfile = {
+          id: uid("rp"),
+          customerId,
+          name: `${customer?.name ?? "Customer"} alerts`,
+          warnDays: 30,
+          criticalDays: 7,
+          teamsChannel: "",
+          emailTo: "",
+          quietHours: true,
+          template: defaultTemplate,
+        };
+        set({ profiles: [...get().profiles, profile] });
+      },
+
       sendTest: (profileId, actor) => {
         const profile = get().profiles.find((item) => item.id === profileId);
         if (!profile) return;
@@ -422,15 +479,24 @@ export const useApp = create<AppState>()(
 
       resetDemo: () => {
         const session = get().session;
-        set({ ...data(), session, view: "overview", selectedDeviceId: "d_a1", toasts: [toast("Demo data restored.", "ok")] });
+        set({
+          ...data(),
+          session,
+          view: "overview",
+          selectedCustomerId: "c_umcsn",
+          selectedDeviceId: "d_a1",
+          focusCertId: null,
+          toasts: [toast("Demo data restored.", "ok")],
+        });
       },
     }),
     {
-      name: "sbce-control-v1",
+      name: "sbce-control-v2",
       skipHydration: true,
       partialize: (state) => ({
         session: state.session,
         view: state.view,
+        selectedCustomerId: state.selectedCustomerId,
         selectedDeviceId: state.selectedDeviceId,
         customers: state.customers,
         sites: state.sites,
@@ -443,6 +509,17 @@ export const useApp = create<AppState>()(
         messages: state.messages,
         acks: state.acks,
       }),
+      merge: (persisted, current) => {
+        const saved = (persisted ?? {}) as Partial<AppState>;
+        const profiles = saved.profiles ?? current.profiles;
+        const scoped = profiles.every((item) => Boolean(item.customerId));
+        return {
+          ...current,
+          ...saved,
+          profiles: scoped ? profiles : current.profiles,
+          selectedCustomerId: saved.selectedCustomerId || current.selectedCustomerId,
+        };
+      },
     },
   ),
 );

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { daysLeft, formatDay, severityOf } from "@/lib/format";
+import { devicesFor } from "@/lib/scope";
 import { useApp } from "@/lib/store";
 import type { Certificate } from "@/lib/types";
 import { Button, Modal, Pill } from "@/components/ui";
@@ -13,6 +14,7 @@ export function Certificates() {
   const actor = useApp((s) => s.session?.name ?? "admin");
   const admin = useApp((s) => s.session?.role === "admin");
   const focusCertId = useApp((s) => s.focusCertId);
+  const customerId = useApp((s) => s.selectedCustomerId);
   const [filter, setFilter] = useState<"all" | "critical" | "warning" | "auto">("all");
   const [plan, setPlan] = useState<{ cert: Certificate; dry: boolean } | null>(null);
   const [ha, setHa] = useState(true);
@@ -22,9 +24,11 @@ export function Certificates() {
     if (focusCertId) setFilter("all");
   }, [focusCertId]);
 
-  const focused = certs.find((c) => c.id === focusCertId) ?? null;
+  const scoped = new Set(devicesFor(sites, devices, customerId).map((device) => device.id));
+  const focused = scoped.has(focusCertId ?? "") ? (certs.find((c) => c.id === focusCertId) ?? null) : null;
 
   const rows = certs
+    .filter((c) => scoped.has(c.deviceId))
     .filter((c) => c.kind === "identity")
     .filter((c) => {
       const tone = severityOf(c.notAfter);

@@ -1,12 +1,17 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { formatWhen } from "@/lib/format";
+import { devicesFor } from "@/lib/scope";
 import { useApp } from "@/lib/store";
 import type { AccessMethod } from "@/lib/types";
 import { Button, Field, inputClass, Panel, Pill } from "@/components/ui";
 
 export function Snapshots() {
   const snapshots = useApp((s) => s.snapshots);
-  const devices = useApp((s) => s.devices);
+  const allDevices = useApp((s) => s.devices);
+  const sites = useApp((s) => s.sites);
+  const customerId = useApp((s) => s.selectedCustomerId);
+  const devices = devicesFor(sites, allDevices, customerId);
+  const deviceIds = new Set(devices.map((device) => device.id));
   const restore = useApp((s) => s.restoreSnapshot);
   const label = useApp((s) => s.labelSnapshot);
   const actor = useApp((s) => s.session?.name ?? "admin");
@@ -17,7 +22,7 @@ export function Snapshots() {
     <Panel title="Snapshots" action={<span className="text-xs text-muted">Last captures stay restorable</span>}>
       {error ? <p className="mb-3 text-sm text-danger">{error}</p> : null}
       <ul className="divide-y divide-line">
-        {snapshots.map((snap) => {
+        {snapshots.filter((snap) => deviceIds.has(snap.deviceId)).map((snap) => {
           const device = devices.find((d) => d.id === snap.deviceId);
           return (
             <li key={snap.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
@@ -53,15 +58,24 @@ export function Snapshots() {
 }
 
 export function AccessView() {
-  const devices = useApp((s) => s.devices);
+  const allDevices = useApp((s) => s.devices);
   const sites = useApp((s) => s.sites);
   const customers = useApp((s) => s.customers);
+  const customerId = useApp((s) => s.selectedCustomerId);
+  const devices = devicesFor(sites, allDevices, customerId);
   const setAccess = useApp((s) => s.setAccess);
   const admin = useApp((s) => s.session?.role === "admin");
   const [picked, setPicked] = useState(devices[0]?.id ?? "");
-  const device = devices.find((d) => d.id === picked);
+  const device = devices.find((d) => d.id === picked) ?? devices[0];
   const [endpoint, setEndpoint] = useState(device?.endpoint ?? "");
   const [method, setMethod] = useState<AccessMethod>(device?.access ?? "tunnel");
+
+  useEffect(() => {
+    if (!device) return;
+    setPicked(device.id);
+    setEndpoint(device.endpoint);
+    setMethod(device.access);
+  }, [device]);
 
   function download() {
     if (!device) return;
@@ -152,13 +166,22 @@ export function AccessView() {
 
 export function AuditView() {
   const audits = useApp((s) => s.audits);
+  const customers = useApp((s) => s.customers);
+  const sites = useApp((s) => s.sites);
+  const devices = useApp((s) => s.devices);
+  const customerId = useApp((s) => s.selectedCustomerId);
+  const customer = customers.find((item) => item.id === customerId);
+  const names = devicesFor(sites, devices, customerId).map((device) => device.name.toLowerCase());
   const [q, setQ] = useState("");
   const needle = q.trim().toLowerCase();
-  const rows = audits.filter((event) =>
-    !needle
-      ? true
-      : `${event.action} ${event.actor} ${event.target} ${event.detail}`.toLowerCase().includes(needle),
-  );
+  const rows = audits.filter((event) => {
+    const blob = `${event.action} ${event.actor} ${event.target} ${event.detail}`.toLowerCase();
+    const mine =
+      (customer ? blob.includes(customer.name.toLowerCase()) : false) ||
+      names.some((name) => name.length > 0 && blob.includes(name));
+    if (!mine) return false;
+    return !needle || blob.includes(needle);
+  });
   return (
     <Panel title="Audit log" action={<input className={inputClass + " w-48"} placeholder="Filter" value={q} onChange={(e) => setQ(e.target.value)} />}>
       <ul className="divide-y divide-line">

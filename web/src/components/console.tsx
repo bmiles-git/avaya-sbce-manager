@@ -20,13 +20,12 @@ import { Reporting } from "@/components/view-reporting";
 import { AccessView, AuditView, Snapshots } from "@/components/view-ops";
 
 const NAV: { id: ViewId; label: string; icon: typeof Server }[] = [
-  { id: "overview", label: "Overview", icon: LayoutDashboard },
-  { id: "inventory", label: "Inventory", icon: Server },
+  { id: "inventory", label: "Devices", icon: Server },
   { id: "certificates", label: "Certificates", icon: Shield },
   { id: "requests", label: "CSR requests", icon: FileKey },
   { id: "reporting", label: "Reporting", icon: Bell },
   { id: "snapshots", label: "Snapshots", icon: History },
-  { id: "access", label: "Access", icon: Network },
+  { id: "access", label: "VPN", icon: Network },
   { id: "audit", label: "Audit", icon: Activity },
 ];
 
@@ -34,10 +33,15 @@ export function Console() {
   const view = useApp((s) => s.view);
   const setView = useApp((s) => s.setView);
   const session = useApp((s) => s.session);
+  const customers = useApp((s) => s.customers);
+  const customerId = useApp((s) => s.selectedCustomerId);
+  const selectCustomer = useApp((s) => s.selectCustomer);
   const signOut = useApp((s) => s.signOut);
   const resetDemo = useApp((s) => s.resetDemo);
   const toasts = useApp((s) => s.toasts);
   const dismiss = useApp((s) => s.dismissToast);
+  const customer = customers.find((item) => item.id === customerId) ?? null;
+  const page = view === "overview" ? "Alarms" : (NAV.find((item) => item.id === view)?.label ?? "SBCE Control");
 
   return (
     <div className="min-h-screen bg-bg text-fg">
@@ -48,6 +52,28 @@ export function Console() {
             <p className="mt-2 text-xs text-paper/60">SBCE Control</p>
           </div>
           <nav className="flex flex-1 flex-col gap-1 px-2">
+            <button
+              onClick={() => setView("overview")}
+              className={cx(
+                "flex min-h-11 items-center gap-2 rounded-md px-3 text-left text-sm",
+                view === "overview" ? "bg-paper/15 text-paper" : "text-paper/70 hover:bg-paper/10 hover:text-paper",
+              )}
+            >
+              <LayoutDashboard size={16} />
+              Alarms
+            </button>
+            <p className="mt-4 px-3 text-[10px] uppercase tracking-wide text-paper/50">Customer</p>
+            <select
+              className="mb-2 min-h-11 rounded-md border border-paper/20 bg-slate px-2 text-sm text-paper"
+              value={customerId}
+              onChange={(e) => selectCustomer(e.target.value)}
+            >
+              {customers.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
             {NAV.map((item) => {
               const Icon = item.icon;
               const active = view === item.id;
@@ -72,10 +98,14 @@ export function Console() {
             <div className="flex items-center gap-3">
               <img src="/gage-logo.svg" alt="Gage Technologies" className="h-8 w-auto md:hidden" />
               <div>
-              <p className="text-sm font-medium">{NAV.find((item) => item.id === view)?.label}</p>
-              <p className="text-xs text-muted">
-                {session?.name} · {session?.mode === "entra" ? "Entra ID" : "Local"} · port {session?.port} · {session?.role}
-              </p>
+                <p className="text-sm font-medium">{page}</p>
+                <p className="text-xs text-muted">
+                  {view === "overview"
+                    ? "All customers"
+                    : `${customer?.name ?? "No customer"} · ${customer?.timezone ?? ""}`}
+                  {" · "}
+                  {session?.name}
+                </p>
               </div>
             </div>
             <div className="flex gap-2">
@@ -88,19 +118,41 @@ export function Console() {
               </Button>
             </div>
           </header>
-          <div className="flex gap-2 overflow-x-auto border-b border-line px-2 py-2 md:hidden">
-            {NAV.map((item) => (
+          <div className="flex flex-col gap-2 border-b border-line px-2 py-2 md:hidden">
+            <select
+              className="min-h-11 rounded-md border border-line bg-surface px-2 text-sm"
+              value={customerId}
+              onChange={(e) => selectCustomer(e.target.value)}
+            >
+              {customers.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+            <div className="flex gap-2 overflow-x-auto">
               <button
-                key={item.id}
-                onClick={() => setView(item.id)}
+                onClick={() => setView("overview")}
                 className={cx(
                   "shrink-0 rounded-md px-3 py-2 text-sm",
-                  view === item.id ? "bg-brass text-ink" : "bg-surface text-muted",
+                  view === "overview" ? "bg-brass text-ink" : "bg-surface text-muted",
                 )}
               >
-                {item.label}
+                Alarms
               </button>
-            ))}
+              {NAV.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => setView(item.id)}
+                  className={cx(
+                    "shrink-0 rounded-md px-3 py-2 text-sm",
+                    view === item.id ? "bg-brass text-ink" : "bg-surface text-muted",
+                  )}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
           </div>
           <main className="flex-1 p-4 md:p-6">
             {view === "overview" ? <Overview /> : null}

@@ -4,23 +4,41 @@ import { Button, Field, inputClass, Panel } from "@/components/ui";
 
 export function Reporting() {
   const profiles = useApp((s) => s.profiles);
+  const customers = useApp((s) => s.customers);
+  const sites = useApp((s) => s.sites);
+  const devices = useApp((s) => s.devices);
+  const customerId = useApp((s) => s.selectedCustomerId);
   const updateProfile = useApp((s) => s.updateProfile);
+  const createProfile = useApp((s) => s.createProfile);
   const sendTest = useApp((s) => s.sendTest);
   const messages = useApp((s) => s.messages);
   const actor = useApp((s) => s.session?.name ?? "admin");
   const admin = useApp((s) => s.session?.role === "admin");
-  const profile = profiles[0];
-  if (!profile) return null;
+  const customer = customers.find((item) => item.id === customerId);
+  const profile = profiles.find((item) => item.customerId === customerId);
+  if (!profile) {
+    return (
+      <Panel title="Reporting">
+        <p className="text-sm text-muted">This customer does not have an email or Teams template yet.</p>
+        <Button className="mt-3" tone="primary" disabled={!admin} onClick={() => createProfile(customerId)}>
+          Create profile
+        </Button>
+      </Panel>
+    );
+  }
 
+  const site = sites.find((item) => item.customerId === customerId);
+  const device = devices.find((item) => item.siteId === site?.id);
   const preview = profile.template
     .replaceAll("{{severity}}", "Warning")
-    .replaceAll("{{customer.name}}", "UMCSN")
-    .replaceAll("{{site.name}}", "SDC")
-    .replaceAll("{{device.name}}", "UMCSN-SBCE-B1")
+    .replaceAll("{{customer.name}}", customer?.name ?? "Customer")
+    .replaceAll("{{site.name}}", site?.name ?? "Site")
+    .replaceAll("{{device.name}}", device?.name ?? "SBCE")
     .replaceAll("{{cert.name}}", "trunk-genesis")
     .replaceAll("{{cert.expires}}", "in 4 days")
     .replaceAll("{{cert.days_remaining}}", "4")
     .replaceAll("{{tls_profiles}}", "TLS-Trunk-Genesis");
+  const sent = messages.filter((message) => message.channel === profile.teamsChannel);
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -104,11 +122,11 @@ export function Reporting() {
           </p>
         </Panel>
         <Panel title="Sent">
-          {messages.length === 0 ? (
+          {sent.length === 0 ? (
             <p className="text-sm text-muted">No test messages yet.</p>
           ) : (
             <ul className="space-y-3">
-              {messages.map((message) => (
+              {sent.map((message) => (
                 <li key={message.id} className="border-b border-line pb-3 last:border-0">
                   <p className="text-xs text-muted">
                     {formatWhen(message.at)} · {message.channel}

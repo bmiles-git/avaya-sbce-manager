@@ -99,6 +99,7 @@ export interface CertRequest {
 
 export interface ReportProfile {
   id: string;
+  customerId: string;
   name: string;
   warnDays: number;
   criticalDays: number;

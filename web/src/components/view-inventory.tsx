@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { daysLeft, severityOf } from "@/lib/format";
+import { devicesFor } from "@/lib/scope";
 import { useApp } from "@/lib/store";
 import type { AccessMethod, DeviceRole } from "@/lib/types";
 import { Button, Field, inputClass, Panel, Pill } from "@/components/ui";
@@ -9,6 +10,7 @@ export function Inventory() {
   const sites = useApp((s) => s.sites);
   const devices = useApp((s) => s.devices);
   const certs = useApp((s) => s.certs);
+  const customerId = useApp((s) => s.selectedCustomerId);
   const selectedId = useApp((s) => s.selectedDeviceId);
   const selectDevice = useApp((s) => s.selectDevice);
   const addCustomer = useApp((s) => s.addCustomer);
@@ -20,15 +22,21 @@ export function Inventory() {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState<"customer" | "site" | "device" | null>(null);
 
-  const selected = devices.find((d) => d.id === selectedId) ?? null;
+  const customer = customers.find((item) => item.id === customerId) ?? null;
+  const customerSites = sites.filter((site) => site.customerId === customerId);
+  const customerDevices = devicesFor(sites, devices, customerId);
+  const selected = customerDevices.find((d) => d.id === selectedId) ?? customerDevices[0] ?? null;
   const q = query.trim().toLowerCase();
-  const visibleCustomers = customers.filter((customer) => {
+  const visibleSites = customerSites.filter((site) => {
     if (!q) return true;
-    const related = devices.filter((d) => sites.some((s) => s.id === d.siteId && s.customerId === customer.id));
     return (
-      customer.name.toLowerCase().includes(q) ||
-      customer.code.toLowerCase().includes(q) ||
-      related.some((d) => d.name.toLowerCase().includes(q) || d.endpoint.includes(q))
+      site.name.toLowerCase().includes(q) ||
+      site.location.toLowerCase().includes(q) ||
+      customerDevices.some(
+        (device) =>
+          device.siteId === site.id &&
+          (device.name.toLowerCase().includes(q) || device.endpoint.includes(q)),
+      )
     );
   });
 
@@ -36,7 +44,7 @@ export function Inventory() {
     <div className="grid gap-4 xl:grid-cols-5">
       <div className="space-y-4 xl:col-span-3">
         <div className="flex flex-wrap gap-2">
-          <input className={cxInput} placeholder="Search customer, device, or endpoint" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input className={cxInput} placeholder="Search site, device, or endpoint" value={query} onChange={(e) => setQuery(e.target.value)} />
           <Button onClick={() => setOpen(open === "customer" ? null : "customer")} disabled={role !== "admin"}>
             Add customer
           </Button>
@@ -47,66 +55,67 @@ export function Inventory() {
         {open === "customer" ? <CustomerForm onClose={() => setOpen(null)} onSave={addCustomer} /> : null}
         {open === "device" ? (
           <DeviceForm
-            sites={sites}
+            sites={customerSites}
             onClose={() => setOpen(null)}
             onSave={addDevice}
             onNeedSite={() => setOpen("site")}
           />
         ) : null}
-        {open === "site" ? <SiteForm customers={customers} onClose={() => setOpen("device")} onSave={addSite} /> : null}
+        {open === "site" ? (
+          <SiteForm customers={customer ? [customer] : []} onClose={() => setOpen("device")} onSave={addSite} />
+        ) : null}
 
-        {visibleCustomers.map((customer) => {
-          const customerSites = sites.filter((s) => s.customerId === customer.id);
-          return (
-            <Panel
-              key={customer.id}
-              title={`${customer.name}`}
-              action={<span className="font-mono text-xs text-muted">{customer.code} · {customer.timezone}</span>}
-            >
-              <div className="space-y-4">
-                {customerSites.map((site) => (
-                  <div key={site.id}>
-                    <p className="mb-2 text-xs text-muted">
-                      {site.name} · {site.location}
-                    </p>
-                    <ul className="space-y-2">
-                      {devices
-                        .filter((d) => d.siteId === site.id)
-                        .map((device) => {
-                          const soonest = certs
-                            .filter((c) => c.deviceId === device.id && c.kind === "identity")
-                            .sort((a, b) => daysLeft(a.notAfter) - daysLeft(b.notAfter))[0];
-                          return (
-                            <li key={device.id}>
-                              <button
-                                onClick={() => selectDevice(device.id)}
-                                className={`flex w-full flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-left ${
-                                  selected?.id === device.id ? "border-brass bg-raised" : "border-line hover:border-brass"
-                                }`}
-                              >
-                                <span>
-                                  <span className="block text-sm">{device.name}</span>
-                                  <span className="font-mono text-xs text-muted">{device.endpoint}</span>
-                                </span>
-                                <span className="flex flex-wrap gap-1">
-                                  <Pill tone="muted">{device.role}</Pill>
-                                  {device.locked ? <Pill tone="warning">locked</Pill> : null}
-                                  {device.maintenance ? <Pill tone="brass">maint</Pill> : null}
-                                  {soonest ? (
-                                    <Pill tone={severityOf(soonest.notAfter)}>{daysLeft(soonest.notAfter)}d</Pill>
-                                  ) : null}
-                                </span>
-                              </button>
-                            </li>
-                          );
-                        })}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            </Panel>
-          );
-        })}
+        <Panel
+          title={customer?.name ?? "Customer"}
+          action={<span className="font-mono text-xs text-muted">{customer?.code} · {customer?.timezone}</span>}
+        >
+          {visibleSites.length === 0 ? (
+            <p className="text-sm text-muted">No sites for this customer yet.</p>
+          ) : (
+            <div className="space-y-4">
+              {visibleSites.map((site) => (
+                <div key={site.id}>
+                  <p className="mb-2 text-xs text-muted">
+                    {site.name} · {site.location}
+                  </p>
+                  <ul className="space-y-2">
+                    {customerDevices
+                      .filter((d) => d.siteId === site.id)
+                      .filter((d) => !q || d.name.toLowerCase().includes(q) || d.endpoint.includes(q) || site.name.toLowerCase().includes(q))
+                      .map((device) => {
+                        const soonest = certs
+                          .filter((c) => c.deviceId === device.id && c.kind === "identity")
+                          .sort((a, b) => daysLeft(a.notAfter) - daysLeft(b.notAfter))[0];
+                        return (
+                          <li key={device.id}>
+                            <button
+                              onClick={() => selectDevice(device.id)}
+                              className={`flex w-full flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-left ${
+                                selected?.id === device.id ? "border-brass bg-raised" : "border-line hover:border-brass"
+                              }`}
+                            >
+                              <span>
+                                <span className="block text-sm">{device.name}</span>
+                                <span className="font-mono text-xs text-muted">{device.endpoint}</span>
+                              </span>
+                              <span className="flex flex-wrap gap-1">
+                                <Pill tone="muted">{device.role}</Pill>
+                                {device.locked ? <Pill tone="warning">locked</Pill> : null}
+                                {device.maintenance ? <Pill tone="brass">maint</Pill> : null}
+                                {soonest ? (
+                                  <Pill tone={severityOf(soonest.notAfter)}>{daysLeft(soonest.notAfter)}d</Pill>
+                                ) : null}
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
       </div>
 
       <Panel title={selected ? selected.name : "Device"} className="xl:col-span-2">

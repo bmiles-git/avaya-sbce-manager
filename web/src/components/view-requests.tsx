@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { formatDay } from "@/lib/format";
+import { devicesFor } from "@/lib/scope";
 import { useApp } from "@/lib/store";
 import { Button, Field, inputClass, Panel, Pill } from "@/components/ui";
 
@@ -7,7 +8,10 @@ const openStatuses = new Set(["draft", "csr_generated", "sent", "awaiting_upload
 
 export function Requests() {
   const requests = useApp((s) => s.requests);
-  const devices = useApp((s) => s.devices);
+  const allDevices = useApp((s) => s.devices);
+  const sites = useApp((s) => s.sites);
+  const customerId = useApp((s) => s.selectedCustomerId);
+  const devices = devicesFor(sites, allDevices, customerId);
   const createRequest = useApp((s) => s.createRequest);
   const markSent = useApp((s) => s.markSent);
   const extendRequest = useApp((s) => s.extendRequest);
@@ -21,6 +25,9 @@ export function Requests() {
   const [notes, setNotes] = useState("Send to the customer PKI admin.");
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const deviceIds = new Set(devices.map((device) => device.id));
+  const deviceIdSafe = deviceIds.has(deviceId) ? deviceId : (devices[0]?.id ?? "");
+  const visible = requests.filter((req) => deviceIds.has(req.deviceId));
 
   return (
     <div className="grid gap-4 lg:grid-cols-5">
@@ -30,11 +37,11 @@ export function Requests() {
           onSubmit={(e) => {
             e.preventDefault();
             if (!admin) return;
-            createRequest(deviceId, certName.trim(), notes.trim(), actor);
+            createRequest(deviceIdSafe, certName.trim(), notes.trim(), actor);
           }}
         >
           <Field label="Device">
-            <select className={inputClass} value={deviceId} onChange={(e) => setDeviceId(e.target.value)}>
+            <select className={inputClass} value={deviceIdSafe} onChange={(e) => setDeviceId(e.target.value)}>
               {devices.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.name}
@@ -55,7 +62,8 @@ export function Requests() {
       </Panel>
 
       <div className="space-y-3 lg:col-span-3">
-        {requests.map((req) => {
+        {visible.length === 0 ? <p className="text-sm text-muted">No CSR requests for this customer.</p> : null}
+        {visible.map((req) => {
           const device = devices.find((d) => d.id === req.deviceId);
           const link = `${window.location.origin}${window.location.pathname}#/upload/${req.token}`;
           return (
