@@ -197,10 +197,11 @@ export const seedRequests: CertRequest[] = [
   {
     id: "req_1",
     deviceId: "d_hbr",
+    certId: "cert_hbr",
     certName: "remote-workers",
     status: "awaiting_upload",
     csrPem:
-      "-----BEGIN CERTIFICATE REQUEST-----\nMIICdemoCSRHarborRemoteWorkersOnlyForPreviewTesting\n-----END CERTIFICATE REQUEST-----\n",
+      "-----BEGIN CERTIFICATE REQUEST-----\nSBCE Control sample CSR. Preview only, not a real PKCS#10.\nCertificate: remote-workers\nDevice: HBR-SBCE-01\nSubject: CN=rw.harbor.example\nSubjectAltName: DNS:rw.harbor.example\nTLS profiles: TLS-RW-Server\n-----END CERTIFICATE REQUEST-----\n",
     signedPem: "",
     token: "upl_harbor_demo",
     tokenExpires: isoInDays(6),

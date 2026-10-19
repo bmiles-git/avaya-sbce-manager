@@ -8,9 +8,11 @@ const openStatuses = new Set(["draft", "csr_generated", "sent", "awaiting_upload
 
 export function Requests() {
   const requests = useApp((s) => s.requests);
+  const certs = useApp((s) => s.certs);
   const allDevices = useApp((s) => s.devices);
   const sites = useApp((s) => s.sites);
   const customerId = useApp((s) => s.selectedCustomerId);
+  const focusRequestId = useApp((s) => s.focusRequestId);
   const devices = devicesFor(sites, allDevices, customerId);
   const createRequest = useApp((s) => s.createRequest);
   const markSent = useApp((s) => s.markSent);
@@ -20,62 +22,92 @@ export function Requests() {
   const applyRequest = useApp((s) => s.applyRequest);
   const actor = useApp((s) => s.session?.name ?? "admin");
   const admin = useApp((s) => s.session?.role === "admin");
-  const [deviceId, setDeviceId] = useState(devices[0]?.id ?? "");
-  const [certName, setCertName] = useState("trunk-public");
-  const [notes, setNotes] = useState("Send to the customer PKI admin.");
+  const [certId, setCertId] = useState("");
+  const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const deviceIds = new Set(devices.map((device) => device.id));
-  const deviceIdSafe = deviceIds.has(deviceId) ? deviceId : (devices[0]?.id ?? "");
+  const trunks = certs.filter((cert) => cert.kind === "identity" && deviceIds.has(cert.deviceId));
+  const certIdSafe = trunks.some((cert) => cert.id === certId) ? certId : (trunks[0]?.id ?? "");
+  const selected = trunks.find((cert) => cert.id === certIdSafe);
+  const selectedDevice = devices.find((device) => device.id === selected?.deviceId);
   const visible = requests.filter((req) => deviceIds.has(req.deviceId));
 
   return (
     <div className="grid gap-4 lg:grid-cols-5">
-      <Panel title="New CSR request" className="lg:col-span-2">
-        <form
-          className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!admin) return;
-            createRequest(deviceIdSafe, certName.trim(), notes.trim(), actor);
-          }}
-        >
-          <Field label="Device">
-            <select className={inputClass} value={deviceIdSafe} onChange={(e) => setDeviceId(e.target.value)}>
-              {devices.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Certificate name">
-            <input className={inputClass} value={certName} onChange={(e) => setCertName(e.target.value)} required />
-          </Field>
-          <Field label="Note to customer">
-            <textarea className={inputClass} rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </Field>
-          <Button tone="primary" type="submit" disabled={!admin}>
-            Generate CSR
-          </Button>
-        </form>
+      <Panel title="CSR for a trunk" className="lg:col-span-2">
+        {trunks.length === 0 ? (
+          <p className="text-sm text-muted">This customer has no identity certificates to replace.</p>
+        ) : (
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!admin || !certIdSafe) return;
+              const message = createRequest(certIdSafe, notes, actor);
+              setError(message);
+            }}
+          >
+            <Field label="Trunk">
+              <select className={inputClass} value={certIdSafe} onChange={(e) => setCertId(e.target.value)}>
+                {trunks.map((cert) => {
+                  const device = devices.find((item) => item.id === cert.deviceId);
+                  return (
+                    <option key={cert.id} value={cert.id}>
+                      {device?.name} · {cert.name}
+                    </option>
+                  );
+                })}
+              </select>
+            </Field>
+            {selected ? (
+              <dl className="space-y-1 text-sm">
+                <div>
+                  <dt className="text-xs text-muted">Subject</dt>
+                  <dd className="font-mono">{selected.subject}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted">SANs</dt>
+                  <dd className="font-mono">{selected.sans.join(", ") || "none"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted">TLS profiles</dt>
+                  <dd>{selected.tlsProfiles.join(", ") || "none"}</dd>
+                </div>
+                {selectedDevice?.locked ? <p className="text-danger">This device is locked.</p> : null}
+              </dl>
+            ) : null}
+            <Field label="Note to the customer PKI admin">
+              <textarea className={inputClass} rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional. Included with the CSR." />
+            </Field>
+            {error ? <p className="text-sm text-danger">{error}</p> : null}
+            <Button tone="primary" type="submit" disabled={!admin || !certIdSafe || selectedDevice?.locked}>
+              Generate sample CSR
+            </Button>
+          </form>
+        )}
       </Panel>
 
       <div className="space-y-3 lg:col-span-3">
         {visible.length === 0 ? <p className="text-sm text-muted">No CSR requests for this customer.</p> : null}
         {visible.map((req) => {
           const device = devices.find((d) => d.id === req.deviceId);
+          const cert = certs.find((item) => item.id === req.certId);
           const link = `${window.location.origin}${window.location.pathname}#/upload/${req.token}`;
           return (
             <Panel
               key={req.id}
-              title={req.certName}
+              className={req.id === focusRequestId ? "ring-2 ring-brass" : undefined}
+              title={`${device?.name ?? "Device"} · ${req.certName}`}
               action={<Pill tone={req.status === "completed" ? "ok" : req.status === "cancelled" ? "muted" : "brass"}>{req.status.replaceAll("_", " ")}</Pill>}
             >
               <p className="text-sm">
-                {device?.name} · link expires {formatDay(req.tokenExpires)}
+                {cert?.subject ?? req.certName}
+                {cert?.sans.length ? ` · SAN ${cert.sans.join(", ")}` : ""}
               </p>
-              <p className="mt-1 text-sm text-muted">{req.notes}</p>
+              <p className="mt-1 text-sm text-muted">
+                Link expires {formatDay(req.tokenExpires)}. {req.notes}
+              </p>
               <pre className="mt-3 max-h-28 overflow-auto rounded-md bg-bg p-3 font-mono text-xs text-muted">{req.csrPem}</pre>
               {req.signedPem ? (
                 <p className="mt-2 text-xs text-ok">Signed certificate is on file ({req.signedPem.length} characters).</p>

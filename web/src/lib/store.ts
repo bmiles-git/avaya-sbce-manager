@@ -47,6 +47,7 @@ interface AppState extends DataSlice {
   selectedCustomerId: string;
   selectedDeviceId: string | null;
   focusCertId: string | null;
+  focusRequestId: string | null;
   toasts: Toast[];
   signInLocal: (username: string, password: string) => string | null;
   signInEntra: () => void;
@@ -65,7 +66,7 @@ interface AppState extends DataSlice {
   renewCert: (certId: string, actor: string, sequentialHa: boolean) => string | null;
   restoreSnapshot: (snapshotId: string, actor: string) => string | null;
   labelSnapshot: (snapshotId: string) => void;
-  createRequest: (deviceId: string, certName: string, notes: string, actor: string) => string;
+  createRequest: (certId: string, notes: string, actor: string) => string | null;
   markSent: (id: string, actor: string) => void;
   extendRequest: (id: string, actor: string) => void;
   reissueRequest: (id: string, actor: string) => void;
@@ -123,6 +124,7 @@ export const useApp = create<AppState>()(
       selectedCustomerId: "c_umcsn",
       selectedDeviceId: "d_a1",
       focusCertId: null,
+      focusRequestId: null,
       toasts: [],
 
       signInLocal: (username, password) => {
@@ -161,6 +163,7 @@ export const useApp = create<AppState>()(
           selectedCustomerId: id,
           selectedDeviceId: devices.some((device) => device.id === current) ? current : (devices[0]?.id ?? null),
           focusCertId: null,
+          focusRequestId: null,
         });
       },
       selectDevice: (id) => {
@@ -318,27 +321,45 @@ export const useApp = create<AppState>()(
         });
       },
 
-      createRequest: (deviceId, certName, notes, actor) => {
-        const device = get().devices.find((item) => item.id === deviceId);
-        const subject = device ? `CN=${device.name.toLowerCase()}.example` : "CN=sbc.example";
+      createRequest: (certId, notes, actor) => {
+        const cert = get().certs.find((item) => item.id === certId);
+        const device = cert && get().devices.find((item) => item.id === cert.deviceId);
+        const site = device && get().sites.find((item) => item.id === device.siteId);
+        if (!cert || !device) return "That trunk is not in the inventory.";
+        if (device.locked) return `${device.name} is locked. Unlock it before generating a CSR.`;
         const row: CertRequest = {
           id: uid("req"),
-          deviceId,
-          certName,
+          deviceId: device.id,
+          certId: cert.id,
+          certName: cert.name,
           status: "csr_generated",
-          csrPem: fakeCsr(certName, subject),
+          csrPem: fakeCsr({
+            name: cert.name,
+            subject: cert.subject,
+            sans: cert.sans,
+            device: device.name,
+            profiles: cert.tlsProfiles,
+          }),
           signedPem: "",
           token: uid("upl"),
           tokenExpires: isoInDays(7),
-          notes,
+          notes: notes.trim() || `Replacement for ${cert.name} (${cert.subject}).`,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
         set({
           requests: [row, ...get().requests],
-          audits: [audit(actor, "request.create", `${device?.name ?? deviceId} / ${certName}`, "CSR generated"), ...get().audits],
+          view: "requests",
+          focusRequestId: row.id,
+          selectedDeviceId: device.id,
+          selectedCustomerId: site?.customerId ?? get().selectedCustomerId,
+          audits: [
+            audit(actor, "request.create", `${device.name} / ${cert.name}`, cert.subject),
+            ...get().audits,
+          ],
+          toasts: [toast(`Sample CSR ready for ${device.name} / ${cert.name}.`, "ok"), ...get().toasts],
         });
-        return row.id;
+        return null;
       },
 
       markSent: (id, actor) => {
@@ -486,6 +507,7 @@ export const useApp = create<AppState>()(
           selectedCustomerId: "c_umcsn",
           selectedDeviceId: "d_a1",
           focusCertId: null,
+          focusRequestId: null,
           toasts: [toast("Demo data restored.", "ok")],
         });
       },

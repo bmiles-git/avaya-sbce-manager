@@ -86,6 +86,7 @@ export interface Snapshot {
 export interface CertRequest {
   id: string;
   deviceId: string;
+  certId: string | null;
   certName: string;
   status: RequestStatus;
   csrPem: string;

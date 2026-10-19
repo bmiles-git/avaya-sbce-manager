@@ -29,10 +29,18 @@ export function isoInDays(days: number) {
   return d.toISOString();
 }
 
-export function fakeCsr(name: string, subject: string) {
-  const blob = btoa(`${name}|${subject}|${Date.now()}`).replace(/=+$/g, "");
-  const lines = blob.match(/.{1,64}/g) ?? [blob];
-  return `-----BEGIN CERTIFICATE REQUEST-----\n${lines.join("\n")}\n-----END CERTIFICATE REQUEST-----\n`;
+export function fakeCsr(input: { name: string; subject: string; sans: string[]; device: string; profiles: string[] }) {
+  const san = input.sans.length ? input.sans.map((name) => `DNS:${name}`).join(", ") : "none";
+  const body = [
+    "SBCE Control sample CSR. Preview only, not a real PKCS#10.",
+    `Certificate: ${input.name}`,
+    `Device: ${input.device}`,
+    `Subject: ${input.subject}`,
+    `SubjectAltName: ${san}`,
+    `TLS profiles: ${input.profiles.join(", ") || "none"}`,
+    `Generated: ${new Date().toISOString()}`,
+  ].join("\n");
+  return `-----BEGIN CERTIFICATE REQUEST-----\n${body}\n-----END CERTIFICATE REQUEST-----\n`;
 }
 
 export function looksLikeCert(pem: string) {

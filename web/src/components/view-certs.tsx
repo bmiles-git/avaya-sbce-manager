@@ -11,6 +11,7 @@ export function Certificates() {
   const customers = useApp((s) => s.customers);
   const sites = useApp((s) => s.sites);
   const renew = useApp((s) => s.renewCert);
+  const createRequest = useApp((s) => s.createRequest);
   const actor = useApp((s) => s.session?.name ?? "admin");
   const admin = useApp((s) => s.session?.role === "admin");
   const focusCertId = useApp((s) => s.focusCertId);
@@ -49,6 +50,8 @@ export function Certificates() {
         ))}
       </div>
       {focused ? <CertEntity certId={focused.id} /> : null}
+      {error ? <p className="text-sm text-danger">{error}</p> : null}
+      <p className="text-sm text-muted">CSR builds a sample for that trunk's subject and SANs, then opens it under CSR requests.</p>
       <div className="overflow-x-auto rounded-md border border-line">
         <table className="w-full min-w-[720px] text-left text-sm">
           <thead className="bg-raised text-xs text-muted">
@@ -89,6 +92,16 @@ export function Certificates() {
                   <td className="px-3 py-3 text-xs text-muted">{cert.tlsProfiles.join(", ")}</td>
                   <td className="px-3 py-3">
                     <div className="flex flex-wrap gap-2">
+                      <Button
+                        tone="primary"
+                        disabled={!admin || device?.locked}
+                        onClick={() => {
+                          const message = createRequest(cert.id, "", actor);
+                          setError(message);
+                        }}
+                      >
+                        CSR
+                      </Button>
                       <Button tone="ghost" onClick={() => { setError(null); setPlan({ cert, dry: true }); }}>
                         Dry run
                       </Button>
