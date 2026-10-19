@@ -19,6 +19,7 @@ export type RequestStatus =
   | "sent"
   | "awaiting_upload"
   | "uploaded"
+  | "chain_review"
   | "applied"
   | "completed"
   | "expired"
@@ -131,6 +132,7 @@ export interface CertRequest {
   remind: "us" | "customer" | "both";
   lastRemindedAt: string | null;
   reminderCount: number;
+  chainNote: string;
 }
 
 export interface ReportProfile {

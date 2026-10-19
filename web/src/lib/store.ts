@@ -79,6 +79,7 @@ interface AppState extends DataSlice {
   recordOpen: (token: string) => void;
   updateRequest: (id: string, patch: Partial<Pick<CertRequest, "customerEmail" | "remind">>) => void;
   sendReminder: (id: string, actor: string) => string | null;
+  acceptTrust: (id: string, actor: string) => string | null;
   applyRequest: (id: string, actor: string) => string | null;
   updateProfile: (id: string, patch: Partial<ReportProfile>) => void;
   createProfile: (customerId: string) => void;
@@ -376,6 +377,7 @@ export const useApp = create<AppState>()(
           remind: "us",
           lastRemindedAt: null,
           reminderCount: 0,
+          chainNote: "",
         };
         set({
           requests: [row, ...get().requests],
@@ -458,10 +460,24 @@ export const useApp = create<AppState>()(
         set({
           requests: get().requests.map((item) =>
             item.id === row.id
-              ? { ...item, signedPem: pem, status: "uploaded", updatedAt: new Date().toISOString() }
+              ? {
+                  ...item,
+                  signedPem: pem,
+                  status: result.trustChange ? "chain_review" : "uploaded",
+                  chainNote: result.chainNote,
+                  updatedAt: new Date().toISOString(),
+                }
               : item,
           ),
-          audits: [audit("customer-upload", "request.upload", row.certName, "Signed certificate received"), ...get().audits],
+          audits: [
+            audit(
+              "customer-upload",
+              result.trustChange ? "request.trust-change" : "request.upload",
+              row.certName,
+              result.chainNote,
+            ),
+            ...get().audits,
+          ],
         });
         return null;
       },
@@ -517,10 +533,36 @@ export const useApp = create<AppState>()(
         return null;
       },
 
+      acceptTrust: (id, actor) => {
+        const row = get().requests.find((item) => item.id === id);
+        const cert = row && (get().certs.find((item) => item.id === row.certId) ?? get().certs.find((item) => item.deviceId === row.deviceId && item.name === row.certName));
+        if (!row || !cert) return "Request not found.";
+        if (row.status !== "chain_review") return "No new root is waiting for acceptance.";
+        const supplier = (row.chainNote.match(/Root: ([^.]+)/)?.[1] ?? "new supplier").split(" ")[0];
+        set({
+          certs: get().certs.map((item) =>
+            item.id === cert.id ? { ...item, requirements: { ...item.requirements, issuer: supplier, peerCaImported: true } } : item,
+          ),
+          requests: get().requests.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  status: "uploaded",
+                  chainNote: item.chainNote.replace("Held for operator acceptance.", `Operator accepted ${supplier}.`),
+                  updatedAt: new Date().toISOString(),
+                }
+          ),
+          audits: [audit(actor, "request.accept-trust", `${cert.name}`, `Trusted supplier is now ${supplier}`), ...get().audits],
+          toasts: [toast(`${supplier} is now the trusted supplier for ${cert.name}. The chain can be applied.`, "ok"), ...get().toasts],
+        });
+        return null;
+      },
+
       applyRequest: (id, actor) => {
         const row = get().requests.find((item) => item.id === id);
         const device = row && get().devices.find((item) => item.id === row.deviceId);
         if (!row || !device) return "Request not found.";
+        if (row.status === "chain_review") return "A new root is waiting. Accept the supplier change before applying it.";
         if (row.status !== "uploaded") return "A signed certificate has not been uploaded yet.";
         if (device.locked) return `${device.name} is locked.`;
         const match = get().certs.find((item) => item.deviceId === device.id && item.name === row.certName);

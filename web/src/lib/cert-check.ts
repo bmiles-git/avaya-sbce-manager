@@ -1,13 +1,5 @@
 import type { Certificate } from "@/lib/types";
 
-export interface ParsedLeaf {
-  cn: string;
-  sans: string[];
-  notBefore: Date;
-  notAfter: Date;
-  key: "RSA" | "ECDSA" | "unknown";
-}
-
 export interface CheckResult {
   ok: boolean;
   text: string;
@@ -67,34 +59,68 @@ function pemWrap(label: string, body: number[]): string {
   return `-----BEGIN ${label}-----\n${lines.join("\n")}\n-----END ${label}-----\n`;
 }
 
+function rsaKey(bits: number): number[] {
+  const modulus = new Array(bits / 8).fill(255);
+  modulus[0] = 0x80;
+  const body = tlv(0x30, [...tlv(0x02, [0x00, ...modulus]), ...tlv(0x02, [0x01, 0x00, 0x01])]);
+  return tlv(0x30, [...tlv(0x30, encodeOid("1.2.840.113549.1.1.1")), ...tlv(0x03, [0x00, ...body])]);
+}
+
+function ecKey(): number[] {
+  return tlv(0x30, [...tlv(0x30, encodeOid("1.2.840.10045.2.1")), ...tlv(0x03, [0x00, 0x04])]);
+}
+
 export function buildSamplePem(input: {
   cn: string;
-  sans: string[];
+  sans?: string[];
   key: "RSA" | "ECDSA";
+  issuer?: string;
+  ca?: boolean;
+  keyBits?: number;
   notBefore?: Date;
   notAfter?: Date;
 }): string {
   const notBefore = input.notBefore ?? new Date(Date.now() - 86400000);
   const notAfter = input.notAfter ?? new Date(Date.now() + 90 * 86400000);
-  const names = input.sans.length ? input.sans : [input.cn];
-  const san = tlv(
-    0x30,
-    names.flatMap((name) => tlv(0x82, ascii(name))),
-  );
-  const extension = tlv(0x30, [...encodeOid("2.5.29.17"), ...tlv(0x04, san)]);
-  const keyOid = input.key === "ECDSA" ? "1.2.840.10045.2.1" : "1.2.840.113549.1.1.1";
-  const tbs = tlv(0x30, [
+  const issuer = input.issuer ?? input.cn;
+  const names = input.sans ?? [];
+  const extensions: number[] = [];
+  if (names.length) {
+    const san = tlv(0x30, names.flatMap((name) => tlv(0x82, ascii(name))));
+    extensions.push(...tlv(0x30, [...encodeOid("2.5.29.17"), ...tlv(0x04, san)]));
+  }
+  if (input.ca) {
+    const constraint = tlv(0x30, tlv(0x01, [0xff]));
+    extensions.push(...tlv(0x30, [...encodeOid("2.5.29.19"), ...tlv(0x04, constraint)]));
+  }
+  const spki = input.key === "RSA" ? rsaKey(input.keyBits ?? 2048) : ecKey();
+  const tbsBody = [
     ...tlv(0xa0, tlv(0x02, [0x02])),
     ...tlv(0x02, [0x01]),
     ...tlv(0x30, encodeOid("1.2.840.113549.1.1.11")),
-    ...tlv(0x30, rdn("2.5.4.3", "Preview CA")),
+    ...tlv(0x30, rdn("2.5.4.3", issuer)),
     ...tlv(0x30, [...utcTime(notBefore), ...utcTime(notAfter)]),
     ...tlv(0x30, rdn("2.5.4.3", input.cn)),
-    ...tlv(0x30, [...tlv(0x30, encodeOid(keyOid)), ...tlv(0x03, [0x00, 0x01])]),
-    ...tlv(0xa3, tlv(0x30, extension)),
-  ]);
-  const cert = tlv(0x30, [...tbs, ...tlv(0x30, encodeOid("1.2.840.113549.1.1.11")), ...tlv(0x03, [0x00, 0x00])]);
+    ...spki,
+  ];
+  if (extensions.length) tbsBody.push(...tlv(0xa3, tlv(0x30, extensions)));
+  const cert = tlv(0x30, [...tlv(0x30, tbsBody), ...tlv(0x30, encodeOid("1.2.840.113549.1.1.11")), ...tlv(0x03, [0x00, 0x00])]);
   return pemWrap("CERTIFICATE", cert);
+}
+
+export function buildSampleChain(input: {
+  cn: string;
+  sans: string[];
+  key: "RSA" | "ECDSA";
+  supplier: string;
+}): string {
+  const root = `${input.supplier} Root`;
+  const intermediate = `${input.supplier} Intermediate`;
+  return [
+    buildSamplePem({ cn: input.cn, sans: input.sans, key: input.key, issuer: intermediate }),
+    buildSamplePem({ cn: intermediate, key: input.key, issuer: root, ca: true }),
+    buildSamplePem({ cn: root, key: input.key, issuer: root, ca: true }),
+  ].join("");
 }
 
 function pemBlocks(pem: string, label: string): string[] {
@@ -195,48 +221,105 @@ function dnsNames(bytes: Uint8Array, extension: Node): string[] {
   return names;
 }
 
-export function parseLeaf(pem: string): ParsedLeaf | { error: string } {
+export interface ParsedCert {
+  cn: string;
+  issuer: string;
+  sans: string[];
+  notBefore: Date;
+  notAfter: Date;
+  key: "RSA" | "ECDSA" | "unknown";
+  keyBits: number | null;
+  ca: boolean;
+  selfSigned: boolean;
+  role: "leaf" | "intermediate" | "root";
+}
+
+function keyBitsOf(bytes: Uint8Array, spki: Node): number | null {
+  const bit = children(bytes, spki).find((node) => node.tag === 0x03);
+  if (!bit || bit.start >= bit.end) return null;
+  try {
+    const inner = readNode(bytes, bit.start + 1);
+    if (inner.tag !== 0x30) return null;
+    const modulus = children(bytes, inner)[0];
+    let raw = bytes.slice(modulus.start, modulus.end);
+    if (raw[0] === 0x00) raw = raw.slice(1);
+    return raw.length * 8;
+  } catch {
+    return null;
+  }
+}
+
+function isCaExtension(bytes: Uint8Array, extension: Node): boolean {
+  const body = children(bytes, extension);
+  const oid = body.find((node) => node.tag === 0x06);
+  if (!oid || oidOf(bytes, oid) !== "2.5.29.19") return false;
+  const octet = body.find((node) => node.tag === 0x04);
+  if (!octet) return false;
+  const wrapped = readNode(bytes, octet.start);
+  const boolean = children(bytes, wrapped).find((node) => node.tag === 0x01);
+  return Boolean(boolean && bytes[boolean.start] !== 0);
+}
+
+function parseCertificate(bytes: Uint8Array): ParsedCert {
+  const root = readNode(bytes, 0);
+  const tbs = children(bytes, root)[0];
+  let fields = children(bytes, tbs);
+  if (fields[0]?.tag === 0xa0) fields = fields.slice(1);
+  const validity = fields[3];
+  const subject = fields[4];
+  const spki = fields[5];
+  const times = children(bytes, validity);
+  const alg = children(bytes, children(bytes, spki)[0])[0];
+  const keyOid = oidOf(bytes, alg);
+  const sans: string[] = [];
+  let ca = false;
+  const extensions = fields.find((node) => node.tag === 0xa3);
+  if (extensions) {
+    const list = children(bytes, readNode(bytes, extensions.start));
+    for (const ext of list) {
+      sans.push(...dnsNames(bytes, ext));
+      if (isCaExtension(bytes, ext)) ca = true;
+    }
+  }
+  const cn = commonName(bytes, subject);
+  const issuer = commonName(bytes, fields[2]);
+  const selfSigned = cn.toLowerCase() === issuer.toLowerCase();
+  const role = ca && selfSigned ? "root" : ca ? "intermediate" : "leaf";
+  return {
+    cn,
+    issuer,
+    sans,
+    notBefore: parseUtc(bytes, times[0]),
+    notAfter: parseUtc(bytes, times[1]),
+    key: keyOid === "1.2.840.10045.2.1" ? "ECDSA" : keyOid.startsWith("1.2.840.113549.1.1") ? "RSA" : "unknown",
+    keyBits: keyOid.startsWith("1.2.840.113549.1.1") ? keyBitsOf(bytes, spki) : null,
+    ca,
+    selfSigned,
+    role,
+  };
+}
+
+export function parseChain(pem: string): { error: string } | { certs: ParsedCert[] } {
   if (/BEGIN (RSA |EC )?PRIVATE KEY/.test(pem) || /BEGIN PRIVATE KEY/.test(pem)) {
-    return { error: "This file contains a private key. Send only the certificate." };
+    return { error: "This file contains a private key. Send only certificates." };
   }
   if (/BEGIN CERTIFICATE REQUEST/.test(pem) && !/BEGIN CERTIFICATE-----/.test(pem)) {
     return { error: "This is the CSR, not the signed certificate." };
   }
   const blocks = pemBlocks(pem, "CERTIFICATE");
   if (!blocks.length) return { error: "No CERTIFICATE block was found." };
-  let bytes: Uint8Array;
   try {
-    bytes = bytesFromB64(blocks[0]);
+    return { certs: blocks.map((block) => parseCertificate(bytesFromB64(block))) };
   } catch {
-    return { error: "The certificate PEM is not valid base64." };
+    return { error: "One of the certificates could not be read as X.509." };
   }
-  try {
-    const root = readNode(bytes, 0);
-    const tbs = children(bytes, root)[0];
-    let fields = children(bytes, tbs);
-    if (fields[0]?.tag === 0xa0) fields = fields.slice(1);
-    const validity = fields[3];
-    const subject = fields[4];
-    const spki = fields[5];
-    const times = children(bytes, validity);
-    const alg = children(bytes, children(bytes, spki)[0])[0];
-    const keyOid = oidOf(bytes, alg);
-    const sans: string[] = [];
-    const extensions = fields.find((node) => node.tag === 0xa3);
-    if (extensions) {
-      const list = children(bytes, readNode(bytes, extensions.start));
-      for (const ext of list) sans.push(...dnsNames(bytes, ext));
-    }
-    return {
-      cn: commonName(bytes, subject),
-      sans,
-      notBefore: parseUtc(bytes, times[0]),
-      notAfter: parseUtc(bytes, times[1]),
-      key: keyOid === "1.2.840.10045.2.1" ? "ECDSA" : keyOid.startsWith("1.2.840.113549.1.1") ? "RSA" : "unknown",
-    };
-  } catch {
-    return { error: "The certificate could not be read as X.509." };
-  }
+}
+
+function sameSupplier(left: string, right: string) {
+  const a = left.toLowerCase();
+  const b = right.toLowerCase();
+  if (!a || !b) return false;
+  return a.includes(b) || b.includes(a);
 }
 
 function wantedCn(subject: string): string {
@@ -249,11 +332,13 @@ export function replacementInstructions(cert: Certificate, deviceName: string): 
   const key = cert.requirements?.keyAlgorithm ?? "the key on the current certificate";
   const lines = [
     `This link is only for ${deviceName} / ${cert.name}. It replaces that certificate and no other.`,
-    "Have your CA sign the CSR below. Paste the leaf certificate first, then any intermediates. Do not send the private key or the CSR.",
+    "Have your CA sign the CSR below. Paste the leaf first, then each intermediate, then the root if your CA supplier changed. Do not send a private key or the CSR.",
     `The leaf CN must be ${cn}.`,
     `The leaf must include these DNS SANs: ${sans}.`,
-    `The key must be ${key}.`,
+    `The key must be ${key}. RSA keys on Avaya SBC must be 2048 or 4096 bits.`,
     "It must already be valid, and it must last at least 30 days.",
+    `The SBCE currently trusts ${cert.requirements?.issuer || "the issuer on this trunk"}. A leaf from that same supplier can be installed. A different root is held until an operator accepts it, because peer verification fails until that root is on the client profile.`,
+    "A self-signed identity is rejected. Avaya SBC drops that TLS handshake.",
   ];
   if (cert.requirements?.use === "teams-direct-routing") {
     lines.push("This trunk is Microsoft Teams Direct Routing. The key has to be ECDSA, from a public CA, for an FQDN in the Microsoft 365 tenant.");
@@ -267,24 +352,49 @@ export function replacementInstructions(cert: Certificate, deviceName: string): 
   return lines;
 }
 
-export function checkReplacement(pem: string, cert: Certificate): { ok: boolean; checks: CheckResult[] } {
-  const parsed = parseLeaf(pem);
-  if ("error" in parsed) return { ok: false, checks: [{ ok: false, text: parsed.error }] };
+export function checkReplacement(pem: string, cert: Certificate): { ok: boolean; trustChange: boolean; chainNote: string; rootCn: string; checks: CheckResult[] } {
+  const parsed = parseChain(pem);
+  if ("error" in parsed) return { ok: false, trustChange: false, chainNote: "", rootCn: "", checks: [{ ok: false, text: parsed.error }] };
+  const leaf = parsed.certs.find((item) => item.role === "leaf") ?? parsed.certs[0];
+  const intermediates = parsed.certs.filter((item) => item.role === "intermediate");
+  const roots = parsed.certs.filter((item) => item.role === "root");
   const cn = wantedCn(cert.subject);
   const requiredSans = [...new Set([...cert.sans, cert.requirements?.fqdn ?? ""].map((item) => item.trim()).filter(Boolean))];
-  const have = new Set(parsed.sans.map((item) => item.toLowerCase()));
+  const have = new Set(leaf.sans.map((item) => item.toLowerCase()));
   const missing = requiredSans.filter((name) => !have.has(name.toLowerCase()));
   const wantedKey = cert.requirements?.keyAlgorithm.startsWith("ECDSA") ? "ECDSA" : "RSA";
-  const soon = parsed.notAfter.getTime() < Date.now() + 30 * 86400000;
-  const notYet = parsed.notBefore.getTime() > Date.now() + 5 * 60000;
+  const soon = leaf.notAfter.getTime() < Date.now() + 30 * 86400000;
+  const notYet = leaf.notBefore.getTime() > Date.now() + 5 * 60000;
+  const trusted = cert.requirements?.issuer ?? "";
+  const anchored = !trusted || sameSupplier(leaf.issuer, trusted) || roots.some((item) => sameSupplier(item.cn, trusted));
   const checks: CheckResult[] = [
-    { ok: parsed.cn.toLowerCase() === cn.toLowerCase(), text: `Subject CN is ${cn}.` },
+    { ok: !leaf.selfSigned, text: leaf.selfSigned ? "Self-signed identity. Avaya SBC rejects that TLS handshake." : "Identity is not self-signed." },
+    { ok: leaf.cn.toLowerCase() === cn.toLowerCase(), text: `Subject CN is ${cn}.` },
     { ok: missing.length === 0, text: missing.length ? `Missing SAN ${missing.join(", ")}.` : `SANs include ${requiredSans.join(", ") || cn}.` },
-    { ok: parsed.key === wantedKey, text: `Key algorithm is ${wantedKey}. Read ${parsed.key}.` },
-    { ok: !notYet && !soon, text: soon ? "Certificate expires within 30 days, so it is not a useful replacement." : notYet ? "Certificate is not valid yet." : `Valid through ${parsed.notAfter.toISOString().slice(0, 10)}.` },
+    { ok: leaf.key === wantedKey, text: `Key algorithm is ${wantedKey}. Read ${leaf.key}.` },
+    {
+      ok: leaf.key !== "RSA" || leaf.keyBits === 2048 || leaf.keyBits === 4096,
+      text: leaf.key === "RSA" ? `RSA key length is ${leaf.keyBits ?? "unreadable"}. Avaya SBC allows 2048 or 4096.` : "Key length rule applies to RSA. This key is not RSA.",
+    },
+    { ok: !notYet && !soon, text: soon ? "Certificate expires within 30 days, so it is not a useful replacement." : notYet ? "Certificate is not valid yet." : `Valid through ${leaf.notAfter.toISOString().slice(0, 10)}.` },
   ];
   if (cert.requirements?.use === "teams-direct-routing") {
-    checks.push({ ok: parsed.key === "ECDSA", text: "Teams Direct Routing needs an ECDSA key." });
+    checks.push({ ok: leaf.key === "ECDSA", text: "Teams Direct Routing needs an ECDSA key." });
   }
-  return { ok: checks.every((item) => item.ok), checks };
+  if (!leaf.selfSigned && !anchored && roots.length === 0) {
+    checks.push({
+      ok: false,
+      text: `Issuer is ${leaf.issuer}. This SBCE trusts ${trusted}. Include the new intermediate and root so the supplier change can be reviewed.`,
+    });
+  }
+  const identityOk = checks.every((item) => item.ok);
+  const trustChange = identityOk && !anchored && roots.length > 0;
+  const chainNote = [
+    `Leaf ${leaf.cn} issued by ${leaf.issuer}.`,
+    intermediates.length ? `Intermediates: ${intermediates.map((item) => item.cn).join(", ")}.` : "No intermediate was included.",
+    roots.length ? `Root: ${roots.map((item) => item.cn).join(", ")}.` : "No root was included.",
+    trustChange ? `Supplier change: ${trusted} -> ${roots[0]?.cn}. Held for operator acceptance.` : anchored ? "Chain ends at the supplier already trusted on this trunk." : "",
+  ].filter(Boolean).join(" ");
+  if (identityOk) checks.push({ ok: true, text: chainNote });
+  return { ok: identityOk, trustChange, chainNote, rootCn: roots[0]?.cn ?? "", checks };
 }

@@ -290,6 +290,7 @@ export const seedRequests: CertRequest[] = [
     remind: "both",
     lastRemindedAt: null,
     reminderCount: 0,
+    chainNote: "",
   },
 ];
 

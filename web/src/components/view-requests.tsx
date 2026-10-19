@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { buildSamplePem } from "@/lib/cert-check";
+import { buildSampleChain } from "@/lib/cert-check";
 import { formatDay, formatWhen } from "@/lib/format";
 import { devicesFor } from "@/lib/scope";
 import { useApp } from "@/lib/store";
 import { Button, Field, inputClass, Panel, Pill } from "@/components/ui";
 
-const openStatuses = new Set(["draft", "csr_generated", "sent", "awaiting_upload", "uploaded", "applied"]);
+const openStatuses = new Set(["draft", "csr_generated", "sent", "awaiting_upload", "uploaded", "chain_review", "applied"]);
 
 export function Requests() {
   const requests = useApp((s) => s.requests);
@@ -23,6 +23,7 @@ export function Requests() {
   const applyRequest = useApp((s) => s.applyRequest);
   const updateRequest = useApp((s) => s.updateRequest);
   const sendReminder = useApp((s) => s.sendReminder);
+  const acceptTrust = useApp((s) => s.acceptTrust);
   const actor = useApp((s) => s.session?.name ?? "admin");
   const admin = useApp((s) => s.session?.role === "admin");
   const [certId, setCertId] = useState("");
@@ -116,6 +117,7 @@ export function Requests() {
                   ? "Customer has not opened this link."
                   : `Customer opened it ${req.openCount} time${req.openCount === 1 ? "" : "s"}. First ${formatWhen(req.firstOpenedAt ?? req.updatedAt)}, last ${formatWhen(req.lastOpenedAt ?? req.updatedAt)}.`}
               </p>
+              {req.chainNote ? <p className="mt-2 text-sm">{req.chainNote}</p> : null}
               {(req.reminderCount ?? 0) > 0 && req.lastRemindedAt ? (
                 <p className="text-xs text-muted">Last reminder {formatWhen(req.lastRemindedAt)} · {req.reminderCount} sent.</p>
               ) : null}
@@ -173,12 +175,28 @@ export function Requests() {
                     const cn = cert.subject.match(/CN=([^,/]+)/i)?.[1]?.trim() ?? cert.subject;
                     const key = cert.requirements?.keyAlgorithm.startsWith("ECDSA") ? "ECDSA" : "RSA";
                     const sans = cert.sans.length ? cert.sans : [cert.requirements?.fqdn ?? cn].filter(Boolean);
-                    await navigator.clipboard.writeText(buildSamplePem({ cn, sans, key }));
+                    const supplier = cert.requirements?.issuer || "DigiCert";
+                    await navigator.clipboard.writeText(buildSampleChain({ cn, sans, key, supplier }));
                     setCopied(req.id);
                     setError(null);
                   }}
                 >
-                  Copy passing test cert
+                  Copy same-supplier chain
+                </Button>
+                <Button
+                  tone="ghost"
+                  disabled={!admin || !cert}
+                  onClick={async () => {
+                    if (!cert) return;
+                    const cn = cert.subject.match(/CN=([^,/]+)/i)?.[1]?.trim() ?? cert.subject;
+                    const key = cert.requirements?.keyAlgorithm.startsWith("ECDSA") ? "ECDSA" : "RSA";
+                    const sans = cert.sans.length ? cert.sans : [cert.requirements?.fqdn ?? cn].filter(Boolean);
+                    await navigator.clipboard.writeText(buildSampleChain({ cn, sans, key, supplier: "Sectigo" }));
+                    setCopied(req.id);
+                    setError(null);
+                  }}
+                >
+                  Copy new-supplier chain
                 </Button>
                 <Button
                   tone="ghost"
@@ -196,6 +214,17 @@ export function Requests() {
                 </Button>
                 <Button tone="ghost" disabled={!admin} onClick={() => reissueRequest(req.id, actor)}>
                   Reissue link
+                </Button>
+                <Button
+                  disabled={!admin || req.status !== "chain_review"}
+                  tone="primary"
+                  onClick={() => {
+                    const message = acceptTrust(req.id, actor);
+                    setCopied(req.id);
+                    setError(message);
+                  }}
+                >
+                  Accept new root
                 </Button>
                 <Button
                   disabled={!admin || req.status !== "uploaded"}

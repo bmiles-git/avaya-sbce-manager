@@ -16,7 +16,7 @@ export function GuestUpload({ token }: { token: string }) {
   const recordOpen = useApp((s) => s.recordOpen);
   const [pem, setPem] = useState("");
   const [checks, setChecks] = useState<CheckResult[] | null>(null);
-  const [done, setDone] = useState(false);
+  const [done, setDone] = useState<false | "accepted" | "held">(false);
 
   useEffect(() => {
     if (!session) recordOpen(token);
@@ -59,8 +59,12 @@ export function GuestUpload({ token }: { token: string }) {
             <pre className="max-h-36 overflow-auto rounded-md bg-bg p-3 font-mono text-xs text-muted">{request.csrPem}</pre>
           </div>
           {request.notes ? <p className="text-sm text-muted">{request.notes}</p> : null}
-          {done || request.status === "uploaded" || request.status === "completed" ? (
-            <p className="text-sm text-ok">Signed certificate accepted. It matched this trunk. An operator still applies it to the SBCE.</p>
+          {done || request.status === "uploaded" || request.status === "chain_review" || request.status === "completed" ? (
+            <p className="text-sm text-ok">
+              {request.status === "chain_review" || done === "held"
+                ? "The certificate matches this trunk, but the CA supplier is not the one this SBCE trusts. It is held until an operator accepts the new root and intermediates."
+                : "Signed certificate accepted. The chain ends at the supplier already trusted here. An operator still applies it to the SBCE."}
+            </p>
           ) : (
             <form
               className="space-y-3"
@@ -74,7 +78,7 @@ export function GuestUpload({ token }: { token: string }) {
                   setChecks([{ ok: false, text: message }]);
                   return;
                 }
-                setDone(true);
+                setDone(result.trustChange ? "held" : "accepted");
               }}
             >
               <textarea
