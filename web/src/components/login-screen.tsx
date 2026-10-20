@@ -1,21 +1,20 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useApp } from "@/lib/store";
 import { Button, Field, inputClass } from "@/components/ui";
 
 export function LoginScreen() {
   const signInLocal = useApp((s) => s.signInLocal);
   const signInEntra = useApp((s) => s.signInEntra);
-  const [username, setUsername] = useState("admin");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [entraError, setEntraError] = useState<string | null>(null);
 
-  function entra() {
-    setBusy(true);
-    window.setTimeout(() => {
-      signInEntra();
-      setBusy(false);
-    }, 700);
+  function entra(event: FormEvent) {
+    event.preventDefault();
+    const failure = signInEntra(email);
+    setEntraError(failure);
   }
 
   return (
@@ -42,10 +41,24 @@ export function LoginScreen() {
             <h2 className="font-medium">Entra ID</h2>
             <span className="font-mono text-xs text-muted">:443</span>
           </div>
-          <p className="mb-4 text-sm text-muted">Primary path. Completes a delegated sign-in as Bryan Miles.</p>
-          <Button tone="primary" className="w-full" onClick={entra} disabled={busy}>
-            {busy ? "Contacting Entra ID…" : "Continue with Entra ID"}
-          </Button>
+          <p className="mb-4 text-sm text-muted">Primary path. Use the person's Entra ID email. This is not a single shared account.</p>
+          <form className="space-y-3" onSubmit={entra}>
+            <Field label="Email">
+              <input
+                className={inputClass}
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="username"
+                placeholder="name@company.com"
+                required
+              />
+            </Field>
+            {entraError ? <p className="text-sm text-danger">{entraError}</p> : null}
+            <Button tone="primary" className="w-full" type="submit">
+              Continue with Entra ID
+            </Button>
+          </form>
         </article>
 
         <article className="rounded-md border border-line bg-surface p-5">
