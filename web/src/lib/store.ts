@@ -66,6 +66,7 @@ import type {
   AcmeConfig,
   AuditEvent,
   AuditStep,
+  AccessConfig,
   Certificate,
   CertRequest,
   CertRequirements,
@@ -116,11 +117,12 @@ interface AppState extends DataSlice {
   openCert: (certId: string) => void;
   dismissToast: (id: string) => void;
   addCustomer: (input: Omit<Customer, "id">) => void;
+  removeCustomer: (id: string) => string | null;
   addSite: (input: Omit<Site, "id">) => void;
   addDevice: (input: Omit<Device, "id">) => void;
   toggleLock: (id: string) => void;
   toggleMaintenance: (id: string) => void;
-  setAccess: (id: string, access: Device["access"], endpoint: string) => void;
+  setAccess: (id: string, access: Device["access"], endpoint: string, config: AccessConfig) => void;
   renewCert: (certId: string, actor: string, sequentialHa: boolean) => string | null;
   renewManaged: (certId: string, actor: string) => string | null;
   updateCert: (
@@ -359,6 +361,36 @@ export const useApp = create<AppState>()(
         });
       },
 
+      removeCustomer: (id) => {
+        const customer = get().customers.find((item) => item.id === id);
+        if (!customer) return "That customer is not in the list.";
+        const siteIds = new Set(get().sites.filter((site) => site.customerId === id).map((site) => site.id));
+        const deviceIds = new Set(get().devices.filter((device) => siteIds.has(device.siteId)).map((device) => device.id));
+        const remaining = get().customers.filter((item) => item.id !== id);
+        const actor = get().session?.name ?? "admin";
+        set({
+          customers: remaining,
+          sites: get().sites.filter((site) => site.customerId !== id),
+          devices: get().devices.filter((device) => !deviceIds.has(device.id)),
+          certs: get().certs.filter((cert) => !deviceIds.has(cert.deviceId)),
+          snapshots: get().snapshots.filter((snap) => !deviceIds.has(snap.deviceId)),
+          requests: get().requests.filter((request) => !deviceIds.has(request.deviceId)),
+          profiles: get().profiles.filter((profile) => profile.customerId !== id),
+          users: get().users.map((user) => ({
+            ...user,
+            customerIds: user.customerIds.filter((customerId) => customerId !== id),
+          })),
+          selectedCustomerId: get().selectedCustomerId === id ? (remaining[0]?.id ?? "") : get().selectedCustomerId,
+          selectedDeviceId: deviceIds.has(get().selectedDeviceId ?? "") ? null : get().selectedDeviceId,
+          audits: [
+            audit(actor, "customer.remove", customer.name, "Removed the customer, its sites, devices, and certificates."),
+            ...get().audits,
+          ],
+          toasts: [toast(`${customer.name} removed.`, "ok"), ...get().toasts],
+        });
+        return null;
+      },
+
       addSite: (input) => {
         const row: Site = { ...input, id: uid("s") };
         set({
@@ -401,16 +433,18 @@ export const useApp = create<AppState>()(
         });
       },
 
-      setAccess: (id, access, endpoint) => {
+      setAccess: (id, access, endpoint, config) => {
         const device = get().devices.find((item) => item.id === id);
         if (!device) return;
         set({
-          devices: get().devices.map((item) => (item.id === id ? { ...item, access, endpoint } : item)),
+          devices: get().devices.map((item) =>
+            item.id === id ? { ...item, access, endpoint, accessConfig: config, apiUser: config.apiUser || item.apiUser } : item,
+          ),
           audits: [
             audit(get().session?.name ?? "admin", "access.update", device.name, `${access} → ${endpoint}`),
             ...get().audits,
           ],
-          toasts: [toast(`Reachability for ${device.name} updated.`, "ok"), ...get().toasts],
+          toasts: [toast(`Reachability for ${device.name} saved.`, "ok"), ...get().toasts],
         });
       },
 

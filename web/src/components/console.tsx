@@ -28,7 +28,7 @@ const NAV: { id: ViewId; label: string; icon: typeof Server }[] = [
   { id: "requests", label: "CSR requests", icon: FileKey },
   { id: "reporting", label: "Reporting", icon: Bell },
   { id: "snapshots", label: "Snapshots", icon: History },
-  { id: "access", label: "VPN", icon: Network },
+  { id: "access", label: "VPN / SAL", icon: Network },
   { id: "audit", label: "Audit", icon: Activity },
   { id: "users", label: "Users", icon: Users },
 ];

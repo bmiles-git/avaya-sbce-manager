@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { formatWhen } from "@/lib/format";
 import { devicesFor } from "@/lib/scope";
 import { useApp } from "@/lib/store";
-import type { AccessMethod, AuditEvent, AuditStep } from "@/lib/types";
+import type { AccessConfig, AccessMethod, AuditEvent, AuditStep } from "@/lib/types";
 import { Button, Field, inputClass, Panel, Pill } from "@/components/ui";
 
 export function Snapshots() {
@@ -57,6 +57,21 @@ export function Snapshots() {
   );
 }
 
+const emptyAccess: AccessConfig = {
+  apiUser: "",
+  vpnKind: "existing",
+  vpnPeer: "",
+  vpnNotes: "",
+  tunnelAddress: "",
+  tunnelPort: "51820",
+  customerEndpoint: "",
+  seid: "",
+  bpLinkId: "",
+  gatewayName: "",
+  elementName: "",
+  salChecked: false,
+};
+
 export function AccessView() {
   const allDevices = useApp((s) => s.devices);
   const sites = useApp((s) => s.sites);
@@ -64,39 +79,51 @@ export function AccessView() {
   const customerId = useApp((s) => s.selectedCustomerId);
   const devices = devicesFor(sites, allDevices, customerId);
   const setAccess = useApp((s) => s.setAccess);
+  const setView = useApp((s) => s.setView);
   const admin = useApp((s) => s.session?.role === "admin");
+  const customer = customers.find((item) => item.id === customerId) ?? null;
   const [picked, setPicked] = useState(devices[0]?.id ?? "");
-  const device = devices.find((d) => d.id === picked) ?? devices[0];
+  const device = devices.find((item) => item.id === picked) ?? devices[0];
   const [endpoint, setEndpoint] = useState(device?.endpoint ?? "");
-  const [method, setMethod] = useState<AccessMethod>(device?.access ?? "tunnel");
+  const [method, setMethod] = useState<AccessMethod>(device?.access ?? "public");
+  const [config, setConfig] = useState<AccessConfig>({ ...emptyAccess, ...device?.accessConfig, apiUser: device?.accessConfig?.apiUser || device?.apiUser || "" });
 
   useEffect(() => {
-    if (!device) return;
+    if (!device) {
+      setPicked("");
+      return;
+    }
     setPicked(device.id);
     setEndpoint(device.endpoint);
     setMethod(device.access);
+    setConfig({ ...emptyAccess, ...device.accessConfig, apiUser: device.accessConfig?.apiUser || device.apiUser || "" });
   }, [device]);
+
+  function patch(next: Partial<AccessConfig>) {
+    setConfig((current) => ({ ...current, ...next }));
+  }
+
+  function save(markChecked = false) {
+    if (!device) return;
+    const next = markChecked ? { ...config, salChecked: true } : config;
+    if (markChecked) setConfig(next);
+    setAccess(device.id, method, endpoint.trim(), next);
+  }
 
   function download() {
     if (!device) return;
-    const site = sites.find((s) => s.id === device.siteId);
-    const customer = customers.find((c) => c.id === site?.customerId);
     const text = [
-      "# SBCE Control outbound tunnel",
-      `# Customer: ${customer?.name ?? "unknown"}`,
-      `# Device: ${device.name}`,
+      "# Outbound tunnel for " + (customer?.name ?? "customer"),
+      "# Device: " + device.name,
+      "# This file records the path. It is not a live WireGuard server.",
       "",
       "[Interface]",
-      "Address = 100.64.12.2/32",
-      "DNS = 1.1.1.1",
+      "Address = " + (config.tunnelAddress || "100.64.12.2/32"),
       "",
       "[Peer]",
-      "PublicKey = preview-only-not-a-real-key",
-      "Endpoint = tunnel.sbce-control.example:51820",
+      "Endpoint = " + (config.customerEndpoint || "customer-public.example") + ":" + (config.tunnelPort || "51820"),
       "AllowedIPs = " + (endpoint || device.endpoint) + "/32",
       "PersistentKeepalive = 25",
-      "",
-      "# Customer side initiates. No inbound port on the SBCE management network.",
     ].join("\n");
     const blob = new Blob([text], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
@@ -107,58 +134,152 @@ export function AccessView() {
     URL.revokeObjectURL(url);
   }
 
+  if (!device) {
+    return (
+      <Panel title="VPN and SAL">
+        <p className="text-sm text-muted">
+          {customer?.name ?? "This customer"} has no devices yet. Add one under Devices, then come back to set how this console reaches it.
+        </p>
+        <Button className="mt-3" onClick={() => setView("inventory")}>
+          Go to devices
+        </Button>
+      </Panel>
+    );
+  }
+
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <Panel title="Customer reachability">
+      <Panel title={`${customer?.name ?? "Customer"} · ${device.name}`}>
         <div className="space-y-3">
           <Field label="Device">
             <select
               className={inputClass}
-              value={picked}
+              value={device.id}
               onChange={(e) => {
-                const next = devices.find((d) => d.id === e.target.value);
+                const next = devices.find((item) => item.id === e.target.value);
                 setPicked(e.target.value);
-                setEndpoint(next?.endpoint ?? "");
-                setMethod(next?.access ?? "tunnel");
+                if (!next) return;
+                setEndpoint(next.endpoint);
+                setMethod(next.access);
+                setConfig({ ...emptyAccess, ...next.accessConfig, apiUser: next.accessConfig?.apiUser || next.apiUser || "" });
               }}
             >
-              {devices.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
+              {devices.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
                 </option>
               ))}
             </select>
           </Field>
-          <Field label="Method">
+          <Field label="How we reach it">
             <select className={inputClass} value={method} onChange={(e) => setMethod(e.target.value as AccessMethod)}>
-              <option value="tunnel">Outbound tunnel</option>
+              <option value="public">Public management address</option>
               <option value="customer-vpn">Customer VPN</option>
-              <option value="public">Public management</option>
+              <option value="tunnel">Outbound tunnel</option>
+              <option value="sal">Avaya SAL</option>
             </select>
           </Field>
-          <Field label="Reachable endpoint">
-            <input className={inputClass} value={endpoint} onChange={(e) => setEndpoint(e.target.value)} />
+          <Field label="SBCE management address">
+            <input className={inputClass} value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="10.0.0.21" />
           </Field>
+
+          {method === "public" ? (
+            <Field label="API user">
+              <input className={inputClass} value={config.apiUser} onChange={(e) => patch({ apiUser: e.target.value })} placeholder="api-cert" />
+            </Field>
+          ) : null}
+
+          {method === "customer-vpn" ? (
+            <>
+              <Field label="VPN type">
+                <select className={inputClass} value={config.vpnKind} onChange={(e) => patch({ vpnKind: e.target.value as AccessConfig["vpnKind"] })}>
+                  <option value="existing">Customer already has a VPN</option>
+                  <option value="ipsec">IPsec</option>
+                  <option value="ssl">SSL VPN</option>
+                </select>
+              </Field>
+              <Field label="VPN peer or concentrator">
+                <input className={inputClass} value={config.vpnPeer} onChange={(e) => patch({ vpnPeer: e.target.value })} placeholder="vpn.customer.example" />
+              </Field>
+              <Field label="Notes">
+                <textarea className={inputClass} rows={3} value={config.vpnNotes} onChange={(e) => patch({ vpnNotes: e.target.value })} placeholder="Who issues the VPN account, and which route reaches the management address." />
+              </Field>
+            </>
+          ) : null}
+
+          {method === "tunnel" ? (
+            <>
+              <Field label="Address inside the tunnel">
+                <input className={inputClass} value={config.tunnelAddress} onChange={(e) => patch({ tunnelAddress: e.target.value })} placeholder="100.64.12.2/32" />
+              </Field>
+              <Field label="Customer public endpoint">
+                <input className={inputClass} value={config.customerEndpoint} onChange={(e) => patch({ customerEndpoint: e.target.value })} placeholder="203.0.113.10" />
+              </Field>
+              <Field label="Tunnel port">
+                <input className={inputClass} value={config.tunnelPort} onChange={(e) => patch({ tunnelPort: e.target.value })} />
+              </Field>
+            </>
+          ) : null}
+
+          {method === "sal" ? (
+            <>
+              <Field label="SAL gateway">
+                <input className={inputClass} value={config.gatewayName} onChange={(e) => patch({ gatewayName: e.target.value })} placeholder="customer-salgw" />
+              </Field>
+              <Field label="Managed element">
+                <input className={inputClass} value={config.elementName} onChange={(e) => patch({ elementName: e.target.value })} placeholder={device.name} />
+              </Field>
+              <Field label="SEID">
+                <input className={inputClass} value={config.seid} onChange={(e) => patch({ seid: e.target.value })} placeholder="(000)000-0000" />
+              </Field>
+              <Field label="BP Link ID">
+                <input className={inputClass} value={config.bpLinkId} onChange={(e) => patch({ bpLinkId: e.target.value })} />
+              </Field>
+              <p className="text-xs text-muted">
+                {config.salChecked ? "Marked reachable in the partner UI." : "Not checked yet. SAL has no partner API, so this is a record of what you confirm at salpartnerui.sal.avaya.com."}
+              </p>
+            </>
+          ) : null}
+
           <div className="flex flex-wrap gap-2">
-            <Button
-              tone="primary"
-              disabled={!admin || !device}
-              onClick={() => device && setAccess(device.id, method, endpoint)}
-            >
-              Save endpoint
+            <Button tone="primary" disabled={!admin} onClick={() => save(false)}>
+              Save setup
             </Button>
-            <Button disabled={method !== "tunnel"} onClick={download}>
-              Download tunnel config
-            </Button>
+            {method === "tunnel" ? <Button onClick={download}>Download tunnel notes</Button> : null}
+            {method === "sal" ? (
+              <Button disabled={!admin || !config.seid || !config.bpLinkId} onClick={() => save(true)}>
+                Mark reachable
+              </Button>
+            ) : null}
           </div>
         </div>
       </Panel>
-      <Panel title="What the customer does">
-        <ol className="list-decimal space-y-2 pl-4 text-sm text-muted">
-          <li>Install the tunnel config, or confirm their existing VPN route to the management address.</li>
-          <li>The control plane stores that address and uses it for API calls, snapshots, and certificate writes.</li>
-          <li>The temporary certificate upload page stays on the public console. Customers do not need the VPN to return a signed cert.</li>
-        </ol>
+      <Panel title="What has to be true">
+        {method === "public" ? (
+          <p className="text-sm text-muted">This host must reach the management address on tcp/443. The SBCE allows this host and drops every other source.</p>
+        ) : null}
+        {method === "customer-vpn" ? (
+          <ol className="list-decimal space-y-2 pl-4 text-sm text-muted">
+            <li>The customer VPN lands on a network that can route to the management address.</li>
+            <li>This console uses that address for the Configuration API. It does not dial the VPN itself.</li>
+            <li>The certificate upload link stays on port 443. The customer does not need the VPN to return a certificate.</li>
+          </ol>
+        ) : null}
+        {method === "tunnel" ? (
+          <ol className="list-decimal space-y-2 pl-4 text-sm text-muted">
+            <li>The customer initiates the tunnel. No inbound port is opened on the SBCE.</li>
+            <li>Save the management address that is reachable once the tunnel is up.</li>
+            <li>The downloaded file is the record of that path. There is no tunnel process on this host yet.</li>
+          </ol>
+        ) : null}
+        {method === "sal" ? (
+          <ol className="list-decimal space-y-2 pl-4 text-sm text-muted">
+            <li>The customer SAL Gateway registers outbound to the hosted concentrator with this BP Link ID.</li>
+            <li>The SBCE is a managed element on that gateway. Remote access is enabled.</li>
+            <li>An operator confirms the element is green at the partner UI, then marks it reachable here.</li>
+            <li>A SAL session is still a person at the keyboard. It does not renew a certificate by itself.</li>
+          </ol>
+        ) : null}
       </Panel>
     </div>
   );

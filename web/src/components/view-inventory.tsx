@@ -14,6 +14,7 @@ export function Inventory() {
   const selectedId = useApp((s) => s.selectedDeviceId);
   const selectDevice = useApp((s) => s.selectDevice);
   const addCustomer = useApp((s) => s.addCustomer);
+  const removeCustomer = useApp((s) => s.removeCustomer);
   const addSite = useApp((s) => s.addSite);
   const addDevice = useApp((s) => s.addDevice);
   const toggleLock = useApp((s) => s.toggleLock);
@@ -21,6 +22,9 @@ export function Inventory() {
   const role = useApp((s) => s.session?.role);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState<"customer" | "site" | "device" | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const [confirmCode, setConfirmCode] = useState("");
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   const customer = customers.find((item) => item.id === customerId) ?? null;
   const customerSites = sites.filter((site) => site.customerId === customerId);
@@ -48,11 +52,56 @@ export function Inventory() {
           <Button onClick={() => setOpen(open === "customer" ? null : "customer")} disabled={role !== "admin"}>
             Add customer
           </Button>
+          {customer ? (
+            <Button
+              tone="danger"
+              disabled={role !== "admin"}
+              onClick={() => {
+                setOpen(null);
+                setConfirmCode("");
+                setRemoveError(null);
+                setRemoving((current) => !current);
+              }}
+            >
+              Remove customer
+            </Button>
+          ) : null}
           <Button onClick={() => setOpen(open === "device" ? null : "device")} disabled={role !== "admin"}>
             Add device
           </Button>
         </div>
         {open === "customer" ? <CustomerForm onClose={() => setOpen(null)} onSave={addCustomer} /> : null}
+        {removing && customer ? (
+          <Panel title={`Remove ${customer.name}`}>
+            <p className="mb-3 text-sm text-muted">
+              This deletes {customer.name}, its sites, devices, certificates, and CSR requests. Type {customer.code} to confirm.
+            </p>
+            {removeError ? <p className="mb-3 text-sm text-danger">{removeError}</p> : null}
+            <form
+              className="flex flex-wrap items-end gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (confirmCode.trim().toUpperCase() !== customer.code.toUpperCase()) {
+                  setRemoveError(`Type ${customer.code} to confirm.`);
+                  return;
+                }
+                const message = removeCustomer(customer.id);
+                if (message) setRemoveError(message);
+                else setRemoving(false);
+              }}
+            >
+              <Field label="Customer code">
+                <input className={inputClass} value={confirmCode} onChange={(e) => setConfirmCode(e.target.value)} />
+              </Field>
+              <Button tone="danger" type="submit">
+                Delete {customer.name}
+              </Button>
+              <Button type="button" tone="ghost" onClick={() => setRemoving(false)}>
+                Cancel
+              </Button>
+            </form>
+          </Panel>
+        ) : null}
         {open === "device" ? (
           <DeviceForm
             sites={customerSites}
@@ -371,6 +420,7 @@ function DeviceForm({
             <option value="public">public</option>
             <option value="tunnel">outbound tunnel</option>
             <option value="customer-vpn">customer VPN</option>
+            <option value="sal">Avaya SAL</option>
           </select>
         </Field>
         <div className="flex items-end">

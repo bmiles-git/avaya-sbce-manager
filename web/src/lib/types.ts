@@ -12,7 +12,7 @@ export type ViewId =
   | "users";
 
 export type DeviceRole = "standalone" | "ems" | "ha-active" | "ha-standby";
-export type AccessMethod = "public" | "tunnel" | "customer-vpn";
+export type AccessMethod = "public" | "tunnel" | "customer-vpn" | "sal";
 export type CertKind = "identity" | "ca";
 export type RequestStatus =
   | "draft"
@@ -60,6 +60,21 @@ export interface Site {
   timezone: string;
 }
 
+export interface AccessConfig {
+  apiUser: string;
+  vpnKind: "existing" | "ipsec" | "ssl";
+  vpnPeer: string;
+  vpnNotes: string;
+  tunnelAddress: string;
+  tunnelPort: string;
+  customerEndpoint: string;
+  seid: string;
+  bpLinkId: string;
+  gatewayName: string;
+  elementName: string;
+  salChecked: boolean;
+}
+
 export interface Device {
   id: string;
   siteId: string;
@@ -71,6 +86,7 @@ export interface Device {
   maintenance: boolean;
   tags: string[];
   access: AccessMethod;
+  accessConfig?: AccessConfig;
   apiUser: string;
 }
 
