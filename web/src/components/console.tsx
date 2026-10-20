@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { entraClient, loadEntraConfig } from "@/lib/entra";
 import {
   Activity,
   Bell,
@@ -136,7 +137,19 @@ export function Console() {
               <Button tone="ghost" onClick={resetDemo}>
                 Reset demo
               </Button>
-              <Button tone="ghost" onClick={signOut}>
+              <Button
+                tone="ghost"
+                onClick={() => {
+                  if (session?.mode !== "entra") {
+                    signOut();
+                    return;
+                  }
+                  void loadEntraConfig()
+                    .then((config) => entraClient(config))
+                    .then((app) => app.logoutRedirect({ postLogoutRedirectUri: window.location.origin }))
+                    .catch(() => signOut());
+                }}
+              >
                 <LogOut size={16} />
                 Sign out
               </Button>

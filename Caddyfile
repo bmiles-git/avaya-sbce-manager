@@ -1,6 +1,11 @@
 # SITE_ADDRESS comes from .env. Port 80 must be reachable so Let's Encrypt can issue.
 {$SITE_ADDRESS} {
-	reverse_proxy web:8080
+	handle /api/auth-config {
+		reverse_proxy web:8081
+	}
+	handle {
+		reverse_proxy web:8080
+	}
 }
 
 # Same host, same certificate. The reachability test is only on this port.

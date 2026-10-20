@@ -176,6 +176,18 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { ok: true });
     return;
   }
+  if (req.method === "GET" && req.url === "/api/auth-config") {
+    const clientId = process.env.ENTRA_CLIENT_ID ?? "";
+    const tenantId = process.env.ENTRA_TENANT_ID ?? "";
+    const redirectUri = process.env.ENTRA_REDIRECT_URI || (process.env.SITE_ADDRESS ? `https://${process.env.SITE_ADDRESS}` : "");
+    json(res, 200, {
+      configured: Boolean(clientId && tenantId && redirectUri),
+      clientId,
+      tenantId,
+      redirectUri,
+    });
+    return;
+  }
   if (req.method !== "POST" || (req.url !== "/api/probe" && req.url !== "/api/mail")) {
     json(res, 404, { ok: false, error: "Not found." });
     return;

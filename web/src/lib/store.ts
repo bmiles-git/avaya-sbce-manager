@@ -105,7 +105,7 @@ interface AppState extends DataSlice {
   focusRequestId: string | null;
   toasts: Toast[];
   signInLocal: (username: string, password: string) => Promise<string | null>;
-  signInEntra: (account: string) => string | null;
+  signInEntra: (account: Pick<Session, "name" | "username" | "role">) => void;
   signOut: () => void;
   createUser: (input: { username: string; name: string; password: string; role: LocalUser["role"]; customerIds: string[] }) => Promise<string | null>;
   setUserPassword: (id: string, password: string) => Promise<string | null>;
@@ -226,19 +226,17 @@ export const useApp = create<AppState>()(
       },
 
       signInEntra: (account) => {
-        const username = account.trim().toLowerCase();
-        if (!username || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(username)) {
-          return "Enter the Entra ID email address for this person.";
-        }
-        const name = username
-          .split("@")[0]
-          .replace(/[._-]+/g, " ")
-          .replace(/\b\w/g, (letter) => letter.toUpperCase());
         set({
-          session: { mode: "entra", name, username, role: "admin", port: 443, customerIds: [] },
-          toasts: [toast(`Signed in as ${username}.`, "ok")],
+          session: {
+            mode: "entra",
+            name: account.name,
+            username: account.username,
+            role: account.role,
+            port: 443,
+            customerIds: [],
+          },
+          toasts: [toast(`Signed in as ${account.username}.`, "ok")],
         });
-        return null;
       },
 
       signOut: () => set({ session: null, view: "overview" }),
