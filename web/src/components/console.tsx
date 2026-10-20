@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import {
   Activity,
   Bell,
@@ -44,6 +45,14 @@ export function Console() {
   const resetDemo = useApp((s) => s.resetDemo);
   const toasts = useApp((s) => s.toasts);
   const dismiss = useApp((s) => s.dismissToast);
+  const armed = useRef(new Set<string>());
+  useEffect(() => {
+    for (const item of toasts) {
+      if (armed.current.has(item.id)) continue;
+      armed.current.add(item.id);
+      window.setTimeout(() => dismiss(item.id), 15000);
+    }
+  }, [toasts, dismiss]);
   const customer = customers.find((item) => item.id === customerId) ?? null;
   const visibleCustomers = customersFor(customers, session?.customerIds);
   const nav = NAV.filter((item) => item.id !== "users" || session?.role === "admin");
