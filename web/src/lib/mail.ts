@@ -1,4 +1,32 @@
-export async function sendMail(input: { to: string; subject: string; text: string }): Promise<string | null> {
+export interface MailSmtp {
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
+  from: string;
+  secure: boolean;
+}
+
+export function smtpFromProfile(profile: {
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpUser?: string;
+  smtpPass?: string;
+  smtpFrom?: string;
+  smtpSecure?: boolean;
+} | null | undefined): MailSmtp | undefined {
+  if (!profile?.smtpHost?.trim()) return undefined;
+  return {
+    host: profile.smtpHost.trim(),
+    port: Number(profile.smtpPort) || 587,
+    user: profile.smtpUser?.trim() ?? "",
+    pass: profile.smtpPass ?? "",
+    from: profile.smtpFrom?.trim() ?? "",
+    secure: Boolean(profile.smtpSecure) || Number(profile.smtpPort) === 465,
+  };
+}
+
+export async function sendMail(input: { to: string; subject: string; text: string; smtp?: MailSmtp }): Promise<string | null> {
   try {
     const response = await fetch("/api/mail", {
       method: "POST",

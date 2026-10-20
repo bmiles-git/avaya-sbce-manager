@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { formatWhen } from "@/lib/format";
-import { sendMail } from "@/lib/mail";
+import { sendMail, smtpFromProfile } from "@/lib/mail";
 import { useApp } from "@/lib/store";
 import { Button, Field, inputClass, Panel } from "@/components/ui";
 
@@ -86,6 +86,35 @@ export function Reporting() {
               onChange={(e) => updateProfile(profile.id, { emailTo: e.target.value })}
             />
           </Field>
+          <p className="text-xs text-muted">SMTP for this customer. Leave the host blank to use the server .env.</p>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="SMTP host">
+              <input className={inputClass} value={profile.smtpHost ?? ""} disabled={!admin} onChange={(e) => updateProfile(profile.id, { smtpHost: e.target.value })} placeholder="smtp.example.com" />
+            </Field>
+            <Field label="Port">
+              <input className={inputClass} type="number" value={profile.smtpPort ?? 587} disabled={!admin} onChange={(e) => updateProfile(profile.id, { smtpPort: Number(e.target.value) })} />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="SMTP user">
+              <input className={inputClass} value={profile.smtpUser ?? ""} disabled={!admin} onChange={(e) => updateProfile(profile.id, { smtpUser: e.target.value })} autoComplete="off" />
+            </Field>
+            <Field label="SMTP password">
+              <input className={inputClass} type="password" value={profile.smtpPass ?? ""} disabled={!admin} onChange={(e) => updateProfile(profile.id, { smtpPass: e.target.value })} autoComplete="new-password" />
+            </Field>
+          </div>
+          <Field label="From address">
+            <input className={inputClass} value={profile.smtpFrom ?? ""} disabled={!admin} onChange={(e) => updateProfile(profile.id, { smtpFrom: e.target.value })} placeholder="alerts@example.com" />
+          </Field>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={Boolean(profile.smtpSecure) || profile.smtpPort === 465}
+              disabled={!admin}
+              onChange={(e) => updateProfile(profile.id, { smtpSecure: e.target.checked })}
+            />
+            Use implicit TLS (port 465)
+          </label>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -118,6 +147,7 @@ export function Reporting() {
                 to: profile.emailTo.trim(),
                 subject: `Certificate alert test · ${customer?.name ?? "Customer"}`,
                 text: preview,
+                smtp: smtpFromProfile(profile),
               });
               if (failure) {
                 setMailOk(false);
@@ -130,6 +160,30 @@ export function Reporting() {
             }}
           >
             Send test email
+          </Button>
+          <Button
+            disabled={!admin}
+            onClick={async () => {
+              setMailNote(null);
+              if (!profile.emailTo.trim()) {
+                setMailOk(false);
+                setMailNote("Add the address that should receive the SMTP test.");
+                return;
+              }
+              const smtp = smtpFromProfile(profile);
+              const failure = await sendMail({
+                to: profile.emailTo.trim(),
+                subject: `SMTP test · ${customer?.name ?? "Customer"}`,
+                text: smtp
+                  ? `SMTP test for ${customer?.name ?? "this customer"} using ${smtp.host}:${smtp.port}.`
+                  : `SMTP test for ${customer?.name ?? "this customer"} using the host .env.`,
+                smtp,
+              });
+              setMailOk(!failure);
+              setMailNote(failure ?? `SMTP accepted a test message for ${profile.emailTo.trim()}${smtp ? ` via ${smtp.host}` : " via the host .env"}.`);
+            }}
+          >
+            Test SMTP
           </Button>
           {mailNote ? <p className={mailOk ? "text-sm text-ok" : "text-sm text-danger"}>{mailNote}</p> : null}
         </div>

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { buildSampleChain } from "@/lib/cert-check";
 import { formatDay, formatWhen } from "@/lib/format";
-import { sendMail } from "@/lib/mail";
+import { sendMail, smtpFromProfile } from "@/lib/mail";
 import { devicesFor, isHaStandby } from "@/lib/scope";
 import { useApp } from "@/lib/store";
 import { Button, Field, inputClass, Panel, Pill } from "@/components/ui";
@@ -203,6 +203,7 @@ export function Requests() {
                       to: recipients.join(", "),
                       subject: `Certificate reminder: ${req.certName}`,
                       text: `The upload link for ${req.certName} is still open.\nOpened ${req.openCount ?? 0} time(s).\n${link}`,
+                      smtp: smtpFromProfile(profile),
                     });
                     if (failure) {
                       setMailNote({ id: req.id, ok: false, text: failure });

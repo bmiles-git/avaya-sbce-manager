@@ -144,25 +144,30 @@ async function sendMail(body) {
   if (!subject || !text.trim()) {
     return { status: 400, payload: { ok: false, error: "Subject and message are required." } };
   }
-  const host = process.env.SMTP_HOST ?? "";
-  const from = process.env.SMTP_FROM ?? "";
+  const override = body.smtp && String(body.smtp.host ?? "").trim() ? body.smtp : null;
+  const host = override ? String(override.host).trim() : (process.env.SMTP_HOST ?? "");
+  const from = override ? String(override.from ?? "").trim() : (process.env.SMTP_FROM ?? "");
   if (!host || !from) {
     return {
       status: 503,
       payload: {
         ok: false,
-        error: "SMTP is not configured on this host. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM in .env, then recreate the container.",
+        error: override
+          ? "This customer needs an SMTP host and a From address."
+          : "SMTP is not configured. Enter it for this customer, or set SMTP_HOST and SMTP_FROM in .env.",
       },
     };
   }
-  const portNumber = Number(process.env.SMTP_PORT || 587);
-  const secure = process.env.SMTP_SECURE === "true" || portNumber === 465;
+  const portNumber = Number(override?.port || process.env.SMTP_PORT || 587);
+  const secure = override ? Boolean(override.secure) || portNumber === 465 : process.env.SMTP_SECURE === "true" || portNumber === 465;
+  const user = override ? String(override.user ?? "").trim() : (process.env.SMTP_USER ?? "");
+  const pass = override ? String(override.pass ?? "") : (process.env.SMTP_PASS ?? "");
   try {
     const transport = nodemailer.createTransport({
       host,
       port: portNumber,
       secure,
-      auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS ?? "" } : undefined,
+      auth: user ? { user, pass } : undefined,
     });
     const info = await transport.sendMail({ from, to, subject, text });
     return { status: 200, payload: { ok: true, id: info.messageId ?? "" } };

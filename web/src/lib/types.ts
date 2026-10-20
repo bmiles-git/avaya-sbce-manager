@@ -184,6 +184,12 @@ export interface ReportProfile {
   emailTo: string;
   quietHours: boolean;
   template: string;
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpUser?: string;
+  smtpPass?: string;
+  smtpFrom?: string;
+  smtpSecure?: boolean;
 }
 
 export type AuditStatus = "done" | "failed" | "skipped";
