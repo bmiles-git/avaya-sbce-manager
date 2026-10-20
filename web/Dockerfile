@@ -5,5 +5,5 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
 RUN npm run build
-EXPOSE 8080
-CMD ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "8080"]
+EXPOSE 8080 8081
+CMD ["sh", "-c", "node scripts/probe-server.mjs & exec npm run preview -- --host 0.0.0.0 --port 8080"]

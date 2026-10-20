@@ -144,7 +144,7 @@ curl -fsSI https://sbce.example.com
 curl -fsSI https://sbce.example.com:8443
 ```
 
-Both use the Let's Encrypt certificate for `SITE_ADDRESS`. Port 8443 is the same host, not a second network.
+Both use the Let's Encrypt certificate for `SITE_ADDRESS`. Port 8443 is the same host, not a second network. Device access tests call `/api/probe` on port 8443 only. That request is not served on port 443.
 
 ## 8. First sign-in
 

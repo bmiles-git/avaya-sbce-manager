@@ -252,6 +252,7 @@ export function AccessView() {
               </Button>
             ) : null}
           </div>
+          <AccessTest endpoint={endpoint} access={method} />
         </div>
       </Panel>
       <Panel title="What has to be true">
@@ -281,6 +282,56 @@ export function AccessView() {
           </ol>
         ) : null}
       </Panel>
+    </div>
+  );
+}
+
+export function AccessTest({ endpoint, access }: { endpoint: string; access: AccessMethod }) {
+  const [lines, setLines] = useState<Array<{ at: string; level: string; message: string }>>([]);
+  const [running, setRunning] = useState(false);
+
+  async function run() {
+    setRunning(true);
+    setLines([{ at: new Date().toISOString(), level: "info", message: "Starting the test from this host." }]);
+    try {
+      const response = await fetch("/api/probe", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ endpoint, access }),
+      });
+      const body = (await response.json()) as { lines?: Array<{ at: string; level: string; message: string }> };
+      if (!response.ok || !body.lines) {
+        setLines([
+          { at: new Date().toISOString(), level: "fail", message: "The test service did not answer. Use port 8443 and rebuild the container." },
+        ]);
+      } else {
+        setLines(body.lines);
+      }
+    } catch {
+      setLines([
+        {
+          at: new Date().toISOString(),
+          level: "fail",
+          message: "Could not reach /api/probe. The test runs only on port 8443, from this host.",
+        },
+      ]);
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <Button type="button" disabled={running || !endpoint.trim()} onClick={run}>
+        {running ? "Testing" : "Test access"}
+      </Button>
+      <pre className="max-h-64 overflow-auto rounded-md bg-slate p-3 font-mono text-xs leading-5 text-ink">
+        {lines.length === 0
+          ? "No test yet."
+          : lines
+              .map((item) => `${item.at.slice(11, 19)}  ${item.level.padEnd(4, " ")}  ${item.message}`)
+              .join("\n")}
+      </pre>
     </div>
   );
 }

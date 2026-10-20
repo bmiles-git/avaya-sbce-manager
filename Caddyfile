@@ -3,7 +3,12 @@
 	reverse_proxy web:8080
 }
 
-# Same host, same certificate. Separate port so local admin is not the public listener.
+# Same host, same certificate. The reachability test is only on this port.
 {$SITE_ADDRESS}:8443 {
-	reverse_proxy web:8080
+	handle /api/* {
+		reverse_proxy web:8081
+	}
+	handle {
+		reverse_proxy web:8080
+	}
 }

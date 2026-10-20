@@ -4,6 +4,7 @@ import { devicesFor } from "@/lib/scope";
 import { useApp } from "@/lib/store";
 import type { AccessMethod, DeviceRole } from "@/lib/types";
 import { Button, Field, inputClass, Panel, Pill } from "@/components/ui";
+import { AccessTest } from "@/components/view-ops";
 
 export function Inventory() {
   const customers = useApp((s) => s.customers);
@@ -19,6 +20,7 @@ export function Inventory() {
   const addDevice = useApp((s) => s.addDevice);
   const toggleLock = useApp((s) => s.toggleLock);
   const toggleMaintenance = useApp((s) => s.toggleMaintenance);
+  const updateDevice = useApp((s) => s.updateDevice);
   const role = useApp((s) => s.session?.role);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState<"customer" | "site" | "device" | null>(null);
@@ -172,8 +174,10 @@ export function Inventory() {
           <DeviceDetail
             deviceId={selected.id}
             admin={role === "admin"}
+            peers={customerDevices.filter((item) => item.id !== selected.id)}
             onLock={() => toggleLock(selected.id)}
             onMaint={() => toggleMaintenance(selected.id)}
+            onSave={(patch, peerId) => updateDevice(selected.id, patch, peerId)}
           />
         ) : (
           <p className="text-sm text-muted">Select a device.</p>
@@ -188,13 +192,20 @@ const cxInput = inputClass + " min-w-0 flex-1";
 function DeviceDetail({
   deviceId,
   admin,
+  peers,
   onLock,
   onMaint,
+  onSave,
 }: {
   deviceId: string;
   admin: boolean;
+  peers: { id: string; name: string }[];
   onLock: () => void;
   onMaint: () => void;
+  onSave: (
+    patch: { name: string; endpoint: string; role: DeviceRole; apiUser: string; tags: string[] },
+    peerId: string | null,
+  ) => string | null;
 }) {
   const device = useApp((s) => s.devices.find((d) => d.id === deviceId));
   const allCerts = useApp((s) => s.certs);
@@ -203,31 +214,115 @@ function DeviceDetail({
   const peer = device?.haPairId
     ? devices.find((d) => d.haPairId === device.haPairId && d.id !== device.id)
     : undefined;
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(device?.name ?? "");
+  const [endpoint, setEndpoint] = useState(device?.endpoint ?? "");
+  const [role, setRole] = useState<DeviceRole>(device?.role ?? "standalone");
+  const [apiUser, setApiUser] = useState(device?.apiUser ?? "");
+  const [tags, setTags] = useState(device?.tags.join(", ") ?? "");
+  const [peerId, setPeerId] = useState(peer?.id ?? "");
+  const [error, setError] = useState<string | null>(null);
   if (!device) return null;
+
+  function beginEdit() {
+    setName(device?.name ?? "");
+    setEndpoint(device?.endpoint ?? "");
+    setRole(device?.role ?? "standalone");
+    setApiUser(device?.apiUser ?? "");
+    setTags(device?.tags.join(", ") ?? "");
+    setPeerId(peer?.id ?? "");
+    setError(null);
+    setEditing(true);
+  }
+
   return (
     <div className="space-y-4 text-sm">
-      <dl className="grid grid-cols-2 gap-3">
-        <div>
-          <dt className="text-xs text-muted">Endpoint</dt>
-          <dd className="font-mono">{device.endpoint}</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-muted">Access</dt>
-          <dd>{device.access}</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-muted">API user</dt>
-          <dd className="font-mono">{admin ? device.apiUser : "hidden"}</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-muted">HA peer</dt>
-          <dd>{peer?.name ?? "—"}</dd>
-        </div>
-      </dl>
-      {peer ? (
+      {editing ? (
+        <form
+          className="grid gap-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const message = onSave(
+              {
+                name,
+                endpoint,
+                role,
+                apiUser,
+                tags: tags.split(",").map((item) => item.trim()).filter(Boolean),
+              },
+              peerId || null,
+            );
+            if (message) setError(message);
+            else setEditing(false);
+          }}
+        >
+          {error ? <p className="text-sm text-danger">{error}</p> : null}
+          <Field label="Name">
+            <input className={inputClass} value={name} onChange={(event) => setName(event.target.value)} required />
+          </Field>
+          <Field label="Management address">
+            <input className={inputClass} value={endpoint} onChange={(event) => setEndpoint(event.target.value)} required />
+          </Field>
+          <Field label="Role">
+            <select className={inputClass} value={role} onChange={(event) => setRole(event.target.value as DeviceRole)}>
+              <option value="standalone">standalone</option>
+              <option value="ems">ems</option>
+              <option value="ha-active">ha-active</option>
+              <option value="ha-standby">ha-standby</option>
+            </select>
+          </Field>
+          <Field label="API user">
+            <input className={inputClass} value={apiUser} onChange={(event) => setApiUser(event.target.value)} />
+          </Field>
+          <Field label="HA peer">
+            <select className={inputClass} value={peerId} onChange={(event) => setPeerId(event.target.value)}>
+              <option value="">None</option>
+              {peers.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Tags">
+            <input className={inputClass} value={tags} onChange={(event) => setTags(event.target.value)} placeholder="production, sip-trunk" />
+          </Field>
+          <div className="flex flex-wrap gap-2">
+            <Button tone="primary" type="submit" disabled={!admin}>
+              Save device
+            </Button>
+            <Button type="button" tone="ghost" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <dl className="grid grid-cols-2 gap-3">
+          <div>
+            <dt className="text-xs text-muted">Endpoint</dt>
+            <dd className="font-mono">{device.endpoint}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted">Access</dt>
+            <dd>{device.access}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted">API user</dt>
+            <dd className="font-mono">{admin ? device.apiUser : "hidden"}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted">HA peer</dt>
+            <dd>{peer?.name ?? "—"}</dd>
+          </div>
+        </dl>
+      )}
+      {peer && !editing ? (
         <p className="text-sm">This HA pair is one configuration. {device.name} and {peer.name} always carry the same certificates.</p>
       ) : null}
       <div className="flex flex-wrap gap-2">
+        <Button onClick={beginEdit} disabled={!admin || editing}>
+          Edit
+        </Button>
         <Button onClick={onLock} disabled={!admin}>
           {device.locked ? "Unlock" : "Lock"}
         </Button>
@@ -235,6 +330,7 @@ function DeviceDetail({
           {device.maintenance ? "Leave maintenance" : "Maintenance mode"}
         </Button>
       </div>
+      <AccessTest endpoint={device.endpoint} access={device.access} />
       <div>
         <p className="mb-2 text-xs text-muted">Certificates</p>
         <ul className="space-y-2">

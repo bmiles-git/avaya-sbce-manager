@@ -120,6 +120,11 @@ interface AppState extends DataSlice {
   removeCustomer: (id: string) => string | null;
   addSite: (input: Omit<Site, "id">) => void;
   addDevice: (input: Omit<Device, "id">) => void;
+  updateDevice: (
+    id: string,
+    patch: Partial<Pick<Device, "name" | "endpoint" | "role" | "apiUser" | "tags">>,
+    peerId: string | null,
+  ) => string | null;
   toggleLock: (id: string) => void;
   toggleMaintenance: (id: string) => void;
   setAccess: (id: string, access: Device["access"], endpoint: string, config: AccessConfig) => void;
@@ -410,6 +415,33 @@ export const useApp = create<AppState>()(
           ],
           toasts: [toast(`${row.name} is ready for an API connection test.`, "ok"), ...get().toasts],
         });
+      },
+
+      updateDevice: (id, patch, peerId) => {
+        const device = get().devices.find((item) => item.id === id);
+        if (!device) return "That device is not in the list.";
+        const name = patch.name?.trim() || device.name;
+        const endpoint = patch.endpoint?.trim() || device.endpoint;
+        if (!name || !endpoint) return "Name and management address are required.";
+        const peer = peerId ? get().devices.find((item) => item.id === peerId) : undefined;
+        if (peerId && (!peer || peer.id === id)) return "Pick a different device as the HA peer.";
+        const pair = peer ? device.haPairId || peer.haPairId || `ha_${id}` : null;
+        let devices = get().devices.map((item) => (item.id === id ? { ...item, ...patch, name, endpoint, haPairId: pair } : item));
+        if (peer && pair) {
+          devices = devices.map((item) => (item.id === peer.id ? { ...item, haPairId: pair } : item));
+        }
+        if (!peer && device.haPairId) {
+          const still = devices.filter((item) => item.haPairId === device.haPairId && item.id !== id);
+          if (still.length === 1) {
+            devices = devices.map((item) => (item.id === still[0].id ? { ...item, haPairId: null } : item));
+          }
+        }
+        set({
+          devices,
+          audits: [audit(get().session?.name ?? "admin", "device.update", name, endpoint), ...get().audits],
+          toasts: [toast(`${name} saved.`, "ok"), ...get().toasts],
+        });
+        return null;
       },
 
       toggleLock: (id) => {
