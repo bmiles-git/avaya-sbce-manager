@@ -107,6 +107,13 @@ export function Console() {
               );
             })}
           </nav>
+          <div className="border-t border-paper/10 px-4 py-3">
+            <p className="truncate text-sm text-paper">{session?.name}</p>
+            <p className="truncate font-mono text-xs text-paper/70">{session?.username}</p>
+            <p className="mt-1 text-[10px] uppercase tracking-wide text-paper/50">
+              {session?.mode === "entra" ? "Entra ID" : "Local"} · port {session?.port}
+            </p>
+          </div>
         </aside>
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-surface px-4 py-3">
@@ -118,12 +125,14 @@ export function Console() {
                   {view === "overview"
                     ? "All customers"
                     : `${customer?.name ?? "No customer"} · ${customer?.timezone ?? ""}`}
-                  {" · "}
-                  {session?.name}
                 </p>
               </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-3">
+              <div className="text-right">
+                <p className="text-sm">{session?.name}</p>
+                <p className="font-mono text-xs text-muted">{session?.username}</p>
+              </div>
               <Button tone="ghost" onClick={resetDemo}>
                 Reset demo
               </Button>
