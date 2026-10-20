@@ -3,7 +3,7 @@
 	reverse_proxy web:8080
 }
 
-# Local accounts. Bind this listener to the management address in .env (ADMIN_BIND).
+# Local accounts, on the same host addresses as port 443.
 :8443 {
 	tls internal
 	reverse_proxy web:8080

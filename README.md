@@ -7,9 +7,7 @@ Do the steps in order. Starting Docker before DNS and the firewall is the usual 
 What you need before step 1:
 
 - A public name, such as `sbce.example.com`
-- The public address of this host
-- The address of this host on the management network, such as `10.40.8.10`
-- The management subnet that is allowed to open port 8443, such as `10.40.0.0/16`
+- The address of this host. Both listeners use it. There is no separate management network.
 
 This brings up the console. It does not log in to an SBCE, open a SAL session, or renew a trunk certificate. Customers, devices, and passwords are stored in the browser that signs in. Two people do not share that data. **Continue with Entra ID** is not a real Entra login yet. Do not put the name on the public internet until that button is a real login, unless you accept that anyone who can open the site can see the rehearsal.
 
@@ -56,7 +54,7 @@ cd /opt/avaya-sbce-manager
 git checkout main
 ```
 
-## 3. Set the name and the management address
+## 3. Set the public name
 
 ```bash
 cd /opt/avaya-sbce-manager
@@ -67,12 +65,9 @@ Edit `.env`:
 
 ```bash
 SITE_ADDRESS=sbce.example.com
-ADMIN_BIND=10.40.8.10
 ```
 
-`SITE_ADDRESS` is the public name. `ADMIN_BIND` is the management address. Port 8443 listens only on that address. If you leave it unset, it listens on `127.0.0.1` only. Do not set it to `0.0.0.0`.
-
-`.env` is not committed. Do not edit `Caddyfile` to put the name in it. The next pull would conflict.
+`SITE_ADDRESS` is the name of this host. Port 443 and port 8443 both listen on every address the host has. `.env` is not committed. Do not edit `Caddyfile` to put the name in it. The next pull would conflict.
 
 ## 4. Publish DNS
 
@@ -86,7 +81,7 @@ Let's Encrypt will not issue a certificate until that name reaches this host fro
 
 ## 5. Open the firewall, then start Docker again
 
-Docker ignores a firewall rule for a port it publishes on every interface. Port 443 is public. Port 8443 is limited by `ADMIN_BIND`. Apply the firewall before the first start.
+Docker publishes 80, 443, and 8443 on the host. Apply the firewall before the first start so those are the only inbound ports.
 
 firewalld:
 
@@ -94,13 +89,11 @@ firewalld:
 sudo systemctl enable --now firewalld
 sudo firewall-cmd --permanent --add-service=http
 sudo firewall-cmd --permanent --add-service=https
-sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="10.40.0.0/16" port port="8443" protocol="tcp" accept'
+sudo firewall-cmd --permanent --add-port=8443/tcp
 sudo firewall-cmd --reload
 sudo systemctl restart docker
 sudo firewall-cmd --list-all
 ```
-
-Change `10.40.0.0/16` to the management subnet. Do not add 8443 as a public service.
 
 ufw:
 
@@ -109,7 +102,7 @@ sudo ufw default deny incoming
 sudo ufw default allow outgoing
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
-sudo ufw allow from 10.40.0.0/16 to any port 8443 proto tcp
+sudo ufw allow 8443/tcp
 sudo ufw deny 8080/tcp
 sudo ufw deny 8000/tcp
 sudo ufw enable
@@ -148,16 +141,14 @@ From this host:
 
 ```bash
 curl -fsSI https://sbce.example.com
-curl -kfsSI https://10.40.8.10:8443
+curl -kfsSI https://sbce.example.com:8443
 ```
 
-`-k` is only for 8443. That listener uses Caddy's internal certificate, so a browser warns until you trust it. Port 443 uses the Let's Encrypt certificate.
-
-From outside the management network, `https://sbce.example.com:8443` should fail. If it answers, `ADMIN_BIND` is still `0.0.0.0` or the container was started before you set `.env`. Run `sudo docker compose up -d` again after fixing `.env`.
+`-k` is only for 8443. That listener uses Caddy's internal certificate, so a browser warns until you trust it. Port 443 uses the Let's Encrypt certificate. Both names are this host. Port 8443 is not a second network.
 
 ## 8. First sign-in
 
-Open `https://10.40.8.10:8443`. Sign in as `admin` / `harbor-admin`. Open **Users**, set a new admin password, and remove the user `harbor`. **Reset demo** puts both sample passwords back.
+Open `https://sbce.example.com:8443`. Sign in as `admin` / `harbor-admin`. Open **Users**, set a new admin password, and remove the user `harbor`. **Reset demo** puts both sample passwords back.
 
 An administrator with no customers selected sees every customer. An operator must be assigned at least one.
 
