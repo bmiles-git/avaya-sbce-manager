@@ -990,7 +990,7 @@ export const useApp = create<AppState>()(
         set({
           messages: [message, ...get().messages],
           audits: [audit(actor, "notify.test", profile.name, profile.teamsChannel), ...get().audits],
-          toasts: [toast("Test card posted to the Teams channel preview.", "ok"), ...get().toasts],
+          toasts: [toast(`Test email recorded for ${profile.emailTo || profile.name}.`, "ok"), ...get().toasts],
         });
       },
 

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { buildSampleChain } from "@/lib/cert-check";
 import { formatDay, formatWhen } from "@/lib/format";
+import { sendMail } from "@/lib/mail";
 import { devicesFor, isHaStandby } from "@/lib/scope";
 import { useApp } from "@/lib/store";
 import { Button, Field, inputClass, Panel, Pill } from "@/components/ui";
@@ -24,6 +25,7 @@ export function Requests() {
   const applyRequest = useApp((s) => s.applyRequest);
   const updateRequest = useApp((s) => s.updateRequest);
   const sendReminder = useApp((s) => s.sendReminder);
+  const profiles = useApp((s) => s.profiles);
   const acceptTrust = useApp((s) => s.acceptTrust);
   const actor = useApp((s) => s.session?.name ?? "admin");
   const admin = useApp((s) => s.session?.role === "admin");
@@ -31,6 +33,7 @@ export function Requests() {
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [mailNote, setMailNote] = useState<{ id: string; ok: boolean; text: string } | null>(null);
   const deviceIds = new Set(devices.map((device) => device.id));
   const trunks = certs.filter((cert) => {
     const device = allDevices.find((item) => item.id === cert.deviceId);
@@ -178,13 +181,46 @@ export function Requests() {
                 ) : null}
                 <Button
                   disabled={!admin}
-                  onClick={() => {
-                    setCopied(req.id);
-                    setError(sendReminder(req.id, actor));
+                  onClick={async () => {
+                    const remind = req.remind ?? "us";
+                    const profile = profiles.find((item) => item.customerId === customerId);
+                    const recipients: string[] = [];
+                    if (remind === "us" || remind === "both") {
+                      if (!profile?.emailTo.trim()) {
+                        setMailNote({ id: req.id, ok: false, text: "Add the reporting email for this customer before reminding operators." });
+                        return;
+                      }
+                      recipients.push(profile.emailTo.trim());
+                    }
+                    if (remind === "customer" || remind === "both") {
+                      if (!req.customerEmail?.trim()) {
+                        setMailNote({ id: req.id, ok: false, text: "Add the customer email before reminding them." });
+                        return;
+                      }
+                      recipients.push(req.customerEmail.trim());
+                    }
+                    const failure = await sendMail({
+                      to: recipients.join(", "),
+                      subject: `Certificate reminder: ${req.certName}`,
+                      text: `The upload link for ${req.certName} is still open.\nOpened ${req.openCount ?? 0} time(s).\n${link}`,
+                    });
+                    if (failure) {
+                      setMailNote({ id: req.id, ok: false, text: failure });
+                      return;
+                    }
+                    const recorded = sendReminder(req.id, actor);
+                    setMailNote({
+                      id: req.id,
+                      ok: !recorded,
+                      text: recorded ?? `Sent to ${recipients.join(", ")}.`,
+                    });
                   }}
                 >
                   Send reminder
                 </Button>
+                {mailNote?.id === req.id ? (
+                  <p className={mailNote.ok ? "w-full text-sm text-ok" : "w-full text-sm text-danger"}>{mailNote.text}</p>
+                ) : null}
                 <Button
                   tone="ghost"
                   onClick={async () => {

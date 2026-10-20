@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { formatWhen } from "@/lib/format";
+import { sendMail } from "@/lib/mail";
 import { useApp } from "@/lib/store";
 import { Button, Field, inputClass, Panel } from "@/components/ui";
 
@@ -14,6 +16,8 @@ export function Reporting() {
   const messages = useApp((s) => s.messages);
   const actor = useApp((s) => s.session?.name ?? "admin");
   const admin = useApp((s) => s.session?.role === "admin");
+  const [mailNote, setMailNote] = useState<string | null>(null);
+  const [mailOk, setMailOk] = useState(false);
   const customer = customers.find((item) => item.id === customerId);
   const profile = profiles.find((item) => item.customerId === customerId);
   if (!profile) {
@@ -100,9 +104,34 @@ export function Reporting() {
               onChange={(e) => updateProfile(profile.id, { template: e.target.value })}
             />
           </Field>
-          <Button tone="primary" disabled={!admin} onClick={() => sendTest(profile.id, actor)}>
-            Send test notification
+          <Button
+            tone="primary"
+            disabled={!admin}
+            onClick={async () => {
+              setMailNote(null);
+              if (!profile.emailTo.trim()) {
+                setMailOk(false);
+                setMailNote("Add an email address first.");
+                return;
+              }
+              const failure = await sendMail({
+                to: profile.emailTo.trim(),
+                subject: `Certificate alert test · ${customer?.name ?? "Customer"}`,
+                text: preview,
+              });
+              if (failure) {
+                setMailOk(false);
+                setMailNote(failure);
+                return;
+              }
+              sendTest(profile.id, actor);
+              setMailOk(true);
+              setMailNote(`Sent to ${profile.emailTo.trim()}.`);
+            }}
+          >
+            Send test email
           </Button>
+          {mailNote ? <p className={mailOk ? "text-sm text-ok" : "text-sm text-danger"}>{mailNote}</p> : null}
         </div>
       </Panel>
 

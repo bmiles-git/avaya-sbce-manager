@@ -2,6 +2,7 @@ import dns from "node:dns/promises";
 import http from "node:http";
 import net from "node:net";
 import tls from "node:tls";
+import nodemailer from "nodemailer";
 
 const port = 8081;
 
@@ -128,24 +129,63 @@ async function probe(body) {
   return { ok: true, lines };
 }
 
+function json(res, status, payload) {
+  res.writeHead(status, { "content-type": "application/json" });
+  res.end(JSON.stringify(payload));
+}
+
+async function sendMail(body) {
+  const to = String(body.to ?? "").trim();
+  const subject = String(body.subject ?? "").trim();
+  const text = String(body.text ?? "");
+  if (!/^[^\s@]+@[^\s@]+(\s*,\s*[^\s@]+@[^\s@]+)*$/.test(to)) {
+    return { status: 400, payload: { ok: false, error: "That is not an email address." } };
+  }
+  if (!subject || !text.trim()) {
+    return { status: 400, payload: { ok: false, error: "Subject and message are required." } };
+  }
+  const host = process.env.SMTP_HOST ?? "";
+  const from = process.env.SMTP_FROM ?? "";
+  if (!host || !from) {
+    return {
+      status: 503,
+      payload: {
+        ok: false,
+        error: "SMTP is not configured on this host. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM in .env, then recreate the container.",
+      },
+    };
+  }
+  const portNumber = Number(process.env.SMTP_PORT || 587);
+  const secure = process.env.SMTP_SECURE === "true" || portNumber === 465;
+  try {
+    const transport = nodemailer.createTransport({
+      host,
+      port: portNumber,
+      secure,
+      auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS ?? "" } : undefined,
+    });
+    const info = await transport.sendMail({ from, to, subject, text });
+    return { status: 200, payload: { ok: true, id: info.messageId ?? "" } };
+  } catch (error) {
+    return { status: 502, payload: { ok: false, error: error instanceof Error ? error.message : "The mail server rejected the message." } };
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && req.url === "/health") {
-    res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ ok: true }));
+    json(res, 200, { ok: true });
     return;
   }
-  if (req.method !== "POST" || req.url !== "/api/probe") {
-    res.writeHead(404, { "content-type": "application/json" });
-    res.end(JSON.stringify({ ok: false, lines: [line("fail", "Not found.")] }));
+  if (req.method !== "POST" || (req.url !== "/api/probe" && req.url !== "/api/mail")) {
+    json(res, 404, { ok: false, error: "Not found." });
     return;
   }
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 8000) {
-      res.writeHead(413, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: false, lines: [line("fail", "Request was too large.")] }));
+    if (size > 20000) {
+      json(res, 413, { ok: false, error: "Request was too large." });
       return;
     }
     chunks.push(chunk);
@@ -154,13 +194,16 @@ const server = http.createServer(async (req, res) => {
   try {
     body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
   } catch {
-    res.writeHead(400, { "content-type": "application/json" });
-    res.end(JSON.stringify({ ok: false, lines: [line("fail", "The request was not JSON.")] }));
+    json(res, 400, { ok: false, error: "The request was not JSON." });
+    return;
+  }
+  if (req.url === "/api/mail") {
+    const result = await sendMail(body);
+    json(res, result.status, result.payload);
     return;
   }
   const result = await probe(body);
-  res.writeHead(200, { "content-type": "application/json" });
-  res.end(JSON.stringify(result));
+  json(res, 200, result);
 });
 
 server.listen(port, "0.0.0.0");
