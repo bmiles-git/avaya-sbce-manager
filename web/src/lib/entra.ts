@@ -37,11 +37,19 @@ export async function entraClient(config: EntraConfig) {
   return client;
 }
 
+const GAGE_DOMAIN = "@gagetech.com";
+
+export function isGageEmployee(account: AccountInfo) {
+  const claims = account.idTokenClaims ?? {};
+  const candidates = [account.username, claims.preferred_username, claims.email, claims.upn].filter(
+    (value): value is string => typeof value === "string",
+  );
+  return candidates.some((value) => value.toLowerCase().endsWith(GAGE_DOMAIN));
+}
+
 export function sessionFromAccount(account: AccountInfo): Session {
   const claims = account.idTokenClaims ?? {};
   const username = account.username || String(claims.preferred_username ?? "");
   const name = account.name || username;
-  const roles = Array.isArray(claims.roles) ? claims.roles.map(String) : [];
-  const role = roles.length === 0 || roles.some((item) => item.toLowerCase() === "admin") ? "admin" : "operator";
-  return { mode: "entra", name, username, role, port: 443, customerIds: [] };
+  return { mode: "entra", name, username, role: "admin", port: 443, customerIds: [] };
 }

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { entraClient, loadEntraConfig } from "@/lib/entra";
 import { useApp } from "@/lib/store";
 import { Button, Field, inputClass } from "@/components/ui";
@@ -10,6 +10,13 @@ export function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const [entraError, setEntraError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const denied = sessionStorage.getItem("entra-denied");
+    if (!denied) return;
+    sessionStorage.removeItem("entra-denied");
+    setEntraError(denied);
+  }, []);
 
   async function entra(event: FormEvent) {
     event.preventDefault();
@@ -23,7 +30,11 @@ export function LoginScreen() {
         return;
       }
       const app = await entraClient(config);
-      await app.loginRedirect({ scopes: ["openid", "profile", "email"], redirectUri: config.redirectUri });
+      await app.loginRedirect({
+        scopes: ["openid", "profile", "email"],
+        redirectUri: config.redirectUri,
+        domainHint: "gagetech.com",
+      });
     } catch (failure) {
       setEntraError(failure instanceof Error ? failure.message : "Microsoft login did not start.");
       setBusy(false);
@@ -54,7 +65,7 @@ export function LoginScreen() {
             <h2 className="font-medium">Entra ID</h2>
             <span className="font-mono text-xs text-muted">:443</span>
           </div>
-          <p className="mb-4 text-sm text-muted">Primary path. Microsoft asks for the account. This console does not accept a typed email as a login.</p>
+          <p className="mb-4 text-sm text-muted">Gage employees sign in with the Microsoft account they use for gagetech.com.</p>
           <form className="space-y-3" onSubmit={entra}>
             {entraError ? <p className="text-sm text-danger">{entraError}</p> : null}
             <Button tone="primary" className="w-full" type="submit" disabled={busy}>

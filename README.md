@@ -75,15 +75,15 @@ SMTP_PASS=
 SMTP_FROM=sbce@example.com
 ```
 
-`Continue with Entra ID` redirects to Microsoft. It does not accept an email typed into this page. In Entra, register an app:
+`Continue with Entra ID` redirects to Microsoft and asks for the Gage account. Access is granted when that account is `@gagetech.com`. Any other account is refused. In Entra, register an app:
 
 1. App registrations, new registration. Supported account types: this directory only.
 2. Redirect URI platform: Single-page application. URI: `https://avaya-sbc.aws.gagetech.com` with no path and no port.
 3. Copy the Application (client) ID into `ENTRA_CLIENT_ID` and the Directory (tenant) ID into `ENTRA_TENANT_ID`.
 4. Under Authentication, leave implicit grant off. The browser uses the authorization code with PKCE.
-5. On the enterprise application, set Assignment required to Yes and assign the people who may open the console.
+5. Assign the Gage employees who should open the console, or leave assignment open if every person in the Gage tenant should be able to try. The console still refuses an account that is not `@gagetech.com`.
 
-A token with no roles, or a role named `Admin`, is an administrator. Any other role is an operator with no customers until one is assigned. After changing `.env`, run `sudo docker compose up -d` so the container sees the tenant and client ID. Sign out of any session that was created before this change.
+A Gage employee who signs in is an administrator of this console. After changing `.env`, run `sudo docker compose up -d` so the container sees the tenant and client ID. Sign out of any session that was created before this change.
 
 `SITE_ADDRESS` is the name of this host. Port 443 and port 8443 both listen on every address the host has. `.env` is not committed. Do not edit `Caddyfile` to put the name in it. The next pull would conflict.
 
