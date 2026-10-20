@@ -6,6 +6,7 @@ export interface EntraConfig {
   clientId: string;
   tenantId: string;
   redirectUri: string;
+  allowedDomain: string;
 }
 
 let client: PublicClientApplication | null = null;
@@ -14,7 +15,7 @@ let clientKey = "";
 export async function loadEntraConfig(): Promise<EntraConfig> {
   const response = await fetch("/api/auth-config");
   if (!response.ok) {
-    return { configured: false, clientId: "", tenantId: "", redirectUri: "" };
+    return { configured: false, clientId: "", tenantId: "", redirectUri: "", allowedDomain: "" };
   }
   return (await response.json()) as EntraConfig;
 }
@@ -37,14 +38,14 @@ export async function entraClient(config: EntraConfig) {
   return client;
 }
 
-const GAGE_DOMAIN = "@gagetech.com";
-
-export function isGageEmployee(account: AccountInfo) {
+export function isAllowedAccount(account: AccountInfo, domain: string) {
+  const suffix = `@${domain.trim().toLowerCase().replace(/^@/, "")}`;
+  if (suffix === "@") return false;
   const claims = account.idTokenClaims ?? {};
   const candidates = [account.username, claims.preferred_username, claims.email, claims.upn].filter(
     (value): value is string => typeof value === "string",
   );
-  return candidates.some((value) => value.toLowerCase().endsWith(GAGE_DOMAIN));
+  return candidates.some((value) => value.toLowerCase().endsWith(suffix));
 }
 
 export function sessionFromAccount(account: AccountInfo): Session {

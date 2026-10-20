@@ -10,12 +10,17 @@ export function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const [entraError, setEntraError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [allowedDomain, setAllowedDomain] = useState("gagetech.com");
 
   useEffect(() => {
     const denied = sessionStorage.getItem("entra-denied");
-    if (!denied) return;
-    sessionStorage.removeItem("entra-denied");
-    setEntraError(denied);
+    if (denied) {
+      sessionStorage.removeItem("entra-denied");
+      setEntraError(denied);
+    }
+    void loadEntraConfig().then((config) => {
+      if (config.allowedDomain) setAllowedDomain(config.allowedDomain);
+    });
   }, []);
 
   async function entra(event: FormEvent) {
@@ -33,7 +38,7 @@ export function LoginScreen() {
       await app.loginRedirect({
         scopes: ["openid", "profile", "email"],
         redirectUri: config.redirectUri,
-        domainHint: "gagetech.com",
+        domainHint: allowedDomain,
       });
     } catch (failure) {
       setEntraError(failure instanceof Error ? failure.message : "Microsoft login did not start.");
@@ -65,7 +70,7 @@ export function LoginScreen() {
             <h2 className="font-medium">Entra ID</h2>
             <span className="font-mono text-xs text-muted">:443</span>
           </div>
-          <p className="mb-4 text-sm text-muted">Gage employees sign in with the Microsoft account they use for gagetech.com.</p>
+          <p className="mb-4 text-sm text-muted">Sign in with the Microsoft account for @{allowedDomain}.</p>
           <form className="space-y-3" onSubmit={entra}>
             {entraError ? <p className="text-sm text-danger">{entraError}</p> : null}
             <Button tone="primary" className="w-full" type="submit" disabled={busy}>

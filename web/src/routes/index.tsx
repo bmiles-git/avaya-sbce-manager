@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Console } from "@/components/console";
 import { GuestUpload } from "@/components/guest-upload";
 import { LoginScreen } from "@/components/login-screen";
-import { entraClient, isGageEmployee, loadEntraConfig, sessionFromAccount } from "@/lib/entra";
+import { entraClient, isAllowedAccount, loadEntraConfig, sessionFromAccount } from "@/lib/entra";
 import { useApp } from "@/lib/store";
 
 export const Route = createFileRoute("/")({ component: Home });
@@ -32,8 +32,11 @@ function Home() {
         const app = await entraClient(config);
         const result = await app.handleRedirectPromise();
         const account = result?.account ?? app.getAllAccounts()[0] ?? null;
-        if (account && !isGageEmployee(account)) {
-          sessionStorage.setItem("entra-denied", "Only a Gage employee account (@gagetech.com) can open this console.");
+        if (account && !isAllowedAccount(account, config.allowedDomain)) {
+          sessionStorage.setItem(
+            "entra-denied",
+            `Only an @${config.allowedDomain || "allowed"} account can open this console.`,
+          );
           useApp.getState().signOut();
           await app.logoutRedirect({ account, onRedirectNavigate: () => false });
           return;
