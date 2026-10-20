@@ -141,10 +141,10 @@ From this host:
 
 ```bash
 curl -fsSI https://sbce.example.com
-curl -kfsSI https://sbce.example.com:8443
+curl -fsSI https://sbce.example.com:8443
 ```
 
-`-k` is only for 8443. That listener uses Caddy's internal certificate, so a browser warns until you trust it. Port 443 uses the Let's Encrypt certificate. Both names are this host. Port 8443 is not a second network.
+Both use the Let's Encrypt certificate for `SITE_ADDRESS`. Port 8443 is the same host, not a second network.
 
 ## 8. First sign-in
 

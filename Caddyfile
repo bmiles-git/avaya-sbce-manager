@@ -3,8 +3,7 @@
 	reverse_proxy web:8080
 }
 
-# Local accounts, on the same host addresses as port 443.
-:8443 {
-	tls internal
+# Same host, same certificate. Separate port so local admin is not the public listener.
+{$SITE_ADDRESS}:8443 {
 	reverse_proxy web:8080
 }
