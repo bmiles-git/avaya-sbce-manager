@@ -21,6 +21,88 @@ Console for certificate work on Avaya Session Border Controller for Enterprise 1
 4. For a customer CA, the console builds a CSR and a one-time link. The customer uploads the signed certificate and chain. The console checks it before anyone can install it. For a managed certificate, the public DNS name points at the Let’s Encrypt challenge, and the console installs the issued certificate on both members of a high-availability pair.
 5. Caddy terminates HTTPS for this console. Port 443 is the Entra listener. Port 8443 is the local administrator listener and the only place the reachability test and SMTP send from.
 
+## Flows
+
+Solid boxes are wired to something outside this page. Dashed boxes are still decided inside the browser. They record the step and the audit line, but they do not call Avaya, Let's Encrypt, or Microsoft Graph yet.
+
+```mermaid
+flowchart TD
+  open[Open the console]
+  open --> port{Which listener?}
+  port -->|443| entra[Microsoft account picker]
+  entra --> domain{Email domain matches ENTRA_ALLOWED_DOMAIN?}
+  domain -->|No| refuse[Refuse the session]
+  domain -->|Yes| alarms[Alarms for every customer]
+  port -->|8443| local[Local username and password]
+  local --> alarms
+  alarms --> choose[Select a customer]
+  choose --> work{What are you doing?}
+  work --> certs[Certificates]
+  work --> reach[Reachability]
+  work --> report[Reporting]
+```
+
+```mermaid
+flowchart TD
+  certs[Certificate on one controller]
+  certs --> mode{Who issues it?}
+  mode -->|Customer CA| csr[Build a CSR]
+  csr --> link[One-time upload link]
+  link --> seen{Customer opened the link?}
+  seen -->|No| remind[Email a reminder]
+  remind --> link
+  seen -->|Yes| upload[Customer uploads the PEM]
+  upload --> valid{Names and chain match the trunk?}
+  valid -->|No| reject[Refuse the file]
+  valid -->|New root| trust[Operator accepts the supplier]
+  trust --> ready[Ready to install]
+  valid -->|Yes| ready
+  mode -->|This console| dns[Publish the DNS-01 name]
+  dns --> le[Ask Let's Encrypt]
+  le --> ready
+  ready --> lock{Controller locked or in maintenance?}
+  lock -->|Yes| stop[Stop and keep the old certificate]
+  lock -->|No| snap[Save a pre-change snapshot]
+  snap --> write[Install the identity and point the TLS profiles]
+  write --> pair{High-availability pair?}
+  pair -->|Yes| standby[Install the same certificate on the standby]
+  pair -->|No| readback[Re-read the certificate]
+  standby --> readback
+  readback --> moved{notAfter moved?}
+  moved -->|No| back[Restore the snapshot]
+  moved -->|Yes| done[Mark the request complete]
+  class csr,le,write,standby,readback,back gap
+  classDef gap stroke-dasharray: 5 5
+```
+
+```mermaid
+flowchart TD
+  reach[How do we reach this controller?]
+  reach --> method{Access method}
+  method -->|Public address| probe[TCP 443 and TLS handshake from port 8443]
+  method -->|VPN or tunnel| probe
+  method -->|Avaya SAL| sal[Record what you confirmed in the SAL partner UI]
+  probe --> log[Show the log]
+  report[Reporting for this customer]
+  report --> smtp{SMTP host filled in?}
+  smtp -->|Yes| customerMail[Send with that customer's server]
+  smtp -->|No| hostMail[Send with the SMTP settings in .env]
+  customerMail --> test[Test SMTP shows the server error]
+  hostMail --> test
+  report --> teams[Post the expiring-certificate card to Teams]
+  class sal,teams gap
+  classDef gap stroke-dasharray: 5 5
+```
+
+Still to finish, in the order a renewal needs them:
+
+1. A real CSR from the controller, not the sample text the page generates now.
+2. A real Let's Encrypt DNS-01 order. The page checks a locally built chain and does not talk to the ACME directory.
+3. The Avaya configuration API calls behind install, re-read, and restore. The audit steps are written, and the certificate date moves in this console, but nothing is sent to the SBCE.
+4. A SAL session. There is no partner API, so the page only stores that someone checked the hosted UI.
+5. The Teams post. The card is previewed here and is not sent through Graph.
+6. A store that is not the browser. Two people who sign in do not see the same customers, devices, or audit log.
+
 Do the steps below in order. Starting Docker before DNS and the firewall is the usual reason the first certificate request fails.
 
 What you need before step 1:
