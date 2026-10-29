@@ -64,11 +64,11 @@ cp .env.example .env
 Edit `.env`:
 
 ```bash
-SITE_ADDRESS=avaya-sbc.aws.gagetech.com
+SITE_ADDRESS=avaya-sbc.aws.yourdomain.com
 ENTRA_TENANT_ID=
 ENTRA_CLIENT_ID=
-ENTRA_REDIRECT_URI=https://avaya-sbc.aws.gagetech.com
-ENTRA_ALLOWED_DOMAIN=gagetech.com
+ENTRA_REDIRECT_URI=https://avaya-sbc.aws.yourdomain.com
+ENTRA_ALLOWED_DOMAIN=yourdomain.com
 SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_USER=
@@ -76,10 +76,10 @@ SMTP_PASS=
 SMTP_FROM=sbce@example.com
 ```
 
-`Continue with Entra ID` redirects to Microsoft. Access is granted when the account's email domain matches `ENTRA_ALLOWED_DOMAIN`. Any other account is refused. The default is `gagetech.com`. In Entra, register an app:
+`Continue with Entra ID` redirects to Microsoft. Access is granted when the account's email domain matches `ENTRA_ALLOWED_DOMAIN`. Any other account is refused. The default is `yourdomain.com`. In Entra, register an app:
 
 1. App registrations, new registration. Supported account types: this directory only.
-2. Redirect URI platform: Single-page application. URI: `https://avaya-sbc.aws.gagetech.com` with no path and no port.
+2. Redirect URI platform: Single-page application. URI: `https://avaya-sbc.aws.yourdomain.com` with no path and no port.
 3. Copy the Application (client) ID into `ENTRA_CLIENT_ID` and the Directory (tenant) ID into `ENTRA_TENANT_ID`.
 4. Under Authentication, leave implicit grant off. The browser uses the authorization code with PKCE.
 5. Assign the people who should open the console, or leave assignment open if everyone in that domain should be able to try. The console still refuses an account outside `ENTRA_ALLOWED_DOMAIN`.
@@ -191,4 +191,4 @@ An HA pair is one configuration. This host still needs tcp/443 to both managemen
 
 If the management address is private, use the customer VPN or SAL. The customer does not need that path to return a certificate. The upload link is on port 443 of this console.
 
-For a managed trunk, publish `_acme-challenge.<fqdn>` as a CNAME to `<certificate id>.acme.gagetech.net`. Do not put an HTTP challenge on the SBCE.
+For a managed trunk, publish `_acme-challenge.<fqdn>` as a CNAME to the target shown on that certificate. Do not put an HTTP challenge on the SBCE.

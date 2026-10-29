@@ -185,7 +185,7 @@ const server = http.createServer(async (req, res) => {
     const clientId = process.env.ENTRA_CLIENT_ID ?? "";
     const tenantId = process.env.ENTRA_TENANT_ID ?? "";
     const redirectUri = process.env.ENTRA_REDIRECT_URI || (process.env.SITE_ADDRESS ? `https://${process.env.SITE_ADDRESS}` : "");
-    const allowedDomain = (process.env.ENTRA_ALLOWED_DOMAIN || "gagetech.com").trim().replace(/^@/, "").toLowerCase();
+    const allowedDomain = (process.env.ENTRA_ALLOWED_DOMAIN || "yourdomain.com").trim().replace(/^@/, "").toLowerCase();
     json(res, 200, {
       configured: Boolean(clientId && tenantId && redirectUri && allowedDomain),
       clientId,

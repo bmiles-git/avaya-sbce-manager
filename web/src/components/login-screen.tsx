@@ -11,7 +11,7 @@ export function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const [entraError, setEntraError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [allowedDomain, setAllowedDomain] = useState("gagetech.com");
+  const [allowedDomain, setAllowedDomain] = useState("yourdomain.com");
 
   useEffect(() => {
     const denied = sessionStorage.getItem("entra-denied");
