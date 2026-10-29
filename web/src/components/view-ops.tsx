@@ -73,11 +73,77 @@ const emptyAccess: AccessConfig = {
   proxyPort: "443",
   sourceAddress: "",
   publicName: "",
+  managementAddress: "",
+  publicInterface: "",
+  listenPort: "443",
+  certSource: "outside",
   salChecked: false,
 };
 
 function asMethod(value: string): AccessMethod {
   return value === "lan" || value === "public" ? "lan" : "cloud";
+}
+
+function relayPlan(device: { name: string; role: string }, method: AccessMethod, endpoint: string, config: AccessConfig) {
+  const source = config.sourceAddress || "this-container-ip/32";
+  const port = config.listenPort || "443";
+  const inside = config.managementAddress || (method === "lan" ? endpoint : "management-address");
+  const name = endpoint || config.publicName || "sbce.example.com";
+  const listenIp = config.publicInterface || "public-interface-ip";
+  const cert =
+    config.certSource === "managed-acme"
+      ? [
+          "Certificate: Let's Encrypt, DNS-01.",
+          `Publish CNAME _acme-challenge.${name} to the zone this host can write.`,
+          `Install the issued certificate as the listen TLS profile for ${name}.`,
+        ]
+      : [
+          "Certificate: outside CA, same CSR path as a trunk.",
+          `Common name: ${name}`,
+          `Subject alternative name: ${name}`,
+          "Key: RSA 2048 or 4096. Avaya's CSR call does not accept ECDSA.",
+          "Install the returned certificate and chain as the listen TLS profile before saving the relay.",
+        ];
+  if (method === "lan") {
+    return [
+      `${device.name} is on the LAN. No reverse proxy.`,
+      `This container connects to ${inside} on TCP 443.`,
+      "",
+      "Firewall whitelist",
+      "Interface: the management interface",
+      "Protocol: TCP",
+      `Source: ${source}`,
+      "Destination port: 443",
+      `Destination: ${inside}`,
+      "A domain is not a valid source.",
+      "",
+      ...cert,
+    ].join("\n");
+  }
+  const front = device.role === "ems" ? "This relay listens on an SBCE public interface and connects to the EMS." : "This relay listens on this SBCE and connects to its management address.";
+  return [
+    `Reverse proxy relay for ${device.name}`,
+    front,
+    `Relay name: console-${device.name}`,
+    `Listen IP: ${listenIp}`,
+    `Listen port: ${port}`,
+    "Listen protocol: HTTPS",
+    `Listen domain: ${name}`,
+    "Listen TLS profile: the certificate named below",
+    `Connect IP: ${inside}`,
+    "Connect protocol: HTTPS",
+    "Connect TLS profile: the profile already used by the management interface",
+    "Rewrite URLs: no",
+    "",
+    "Firewall whitelist",
+    "Interface: the public interface that owns the listen IP",
+    "Protocol: TCP",
+    `Source: ${source}`,
+    `Destination port: ${port}`,
+    "Do not publish the management interface itself.",
+    "",
+    ...cert,
+  ].join("\n");
 }
 
 export function AccessView() {
@@ -95,6 +161,7 @@ export function AccessView() {
   const [endpoint, setEndpoint] = useState(device?.endpoint ?? "");
   const [method, setMethod] = useState<AccessMethod>("lan");
   const [config, setConfig] = useState<AccessConfig>({ ...emptyAccess, ...device?.accessConfig, apiUser: device?.accessConfig?.apiUser || device?.apiUser || "" });
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!device) {
@@ -150,7 +217,7 @@ export function AccessView() {
             >
               {devices.map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.name}
+                  {item.name} · {item.role}
                 </option>
               ))}
             </select>
@@ -161,8 +228,31 @@ export function AccessView() {
               <option value="cloud">Cloud (SBCE reverse proxy)</option>
             </select>
           </Field>
-          <Field label={method === "cloud" ? "Public name of the reverse proxy" : "Management address"}>
+          <Field label={method === "cloud" ? "Public name on the certificate" : "Management address"}>
             <input className={inputClass} value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder={method === "cloud" ? "sbce.customer.example" : "10.0.0.21"} />
+          </Field>
+          {method === "cloud" ? (
+            <>
+              <Field label="Public interface IP">
+                <input className={inputClass} value={config.publicInterface} onChange={(e) => patch({ publicInterface: e.target.value })} placeholder="203.0.113.21" />
+              </Field>
+              <Field label="Listen port">
+                <input className={inputClass} value={config.listenPort} onChange={(e) => patch({ listenPort: e.target.value })} placeholder="443" />
+              </Field>
+              <Field label={device.role === "ems" ? "EMS management address" : "Management address"}>
+                <input className={inputClass} value={config.managementAddress} onChange={(e) => patch({ managementAddress: e.target.value })} placeholder="10.0.0.21" />
+              </Field>
+            </>
+          ) : (
+            <Field label="Management address is the name above. Inside address, if different">
+              <input className={inputClass} value={config.managementAddress} onChange={(e) => patch({ managementAddress: e.target.value })} placeholder={endpoint || "10.0.0.21"} />
+            </Field>
+          )}
+          <Field label="Certificate for this connection">
+            <select className={inputClass} value={config.certSource} onChange={(e) => patch({ certSource: e.target.value as AccessConfig["certSource"] })}>
+              <option value="outside">Outside CA, CSR</option>
+              <option value="managed-acme">Let's Encrypt</option>
+            </select>
           </Field>
           <Field label="API user">
             <input className={inputClass} value={config.apiUser} onChange={(e) => patch({ apiUser: e.target.value })} placeholder="api-cert" />
@@ -179,20 +269,24 @@ export function AccessView() {
           <AccessTest endpoint={endpoint} access={method} />
         </div>
       </Panel>
-      <Panel title="What has to be true">
-        {method === "lan" ? (
-          <ol className="list-decimal space-y-2 pl-4 text-sm text-muted">
-            <li>This host and the SBCE share a network. The management address stays private.</li>
-            <li>On the SBCE firewall, whitelist TCP port 443 from this host's address only. The source is an IP or CIDR, not a domain.</li>
-            <li>Do not put the management interface on a public address.</li>
-          </ol>
-        ) : (
-          <ol className="list-decimal space-y-2 pl-4 text-sm text-muted">
-            <li>Add a reverse proxy relay. Listen HTTPS on the public interface, on the name in the certificate. Connect HTTPS to the management address.</li>
-            <li>Whitelist TCP port 443 from this container's public IP only. A domain cannot be the source.</li>
-            <li>This console connects to that public name. Test access checks the TLS handshake.</li>
-          </ol>
-        )}
+      <Panel
+        title={method === "cloud" ? "Reverse proxy and firewall" : "Firewall"}
+        action={
+          <Button
+            tone="ghost"
+            onClick={() => {
+              const text = relayPlan(device, method, endpoint, config);
+              void navigator.clipboard.writeText(text).then(() => {
+                setCopied(true);
+                window.setTimeout(() => setCopied(false), 2000);
+              });
+            }}
+          >
+            {copied ? "Copied" : "Copy"}
+          </Button>
+        }
+      >
+        <pre className="whitespace-pre-wrap font-mono text-xs leading-5 text-muted">{relayPlan(device, method, endpoint, config)}</pre>
       </Panel>
     </div>
   );

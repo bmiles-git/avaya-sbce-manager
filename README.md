@@ -112,6 +112,8 @@ The whitelist source is an IP or CIDR. The API does not take a domain as a sourc
 
 ## Reaching a controller
 
+Open **Access**, pick the SBCE or the EMS, and fill in the management address, the public interface, the name that will be on the certificate, and this container's IP. Choose Let's Encrypt or an outside CA. The page writes the reverse proxy relay and the firewall whitelist for that device. Copy it onto the SBCE. The console does not create the relay yet.
+
 Use one of these. Do not put the management interface itself on the internet.
 
 LAN:

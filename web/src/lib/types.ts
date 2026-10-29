@@ -76,6 +76,10 @@ export interface AccessConfig {
   proxyPort: string;
   sourceAddress: string;
   publicName: string;
+  managementAddress: string;
+  publicInterface: string;
+  listenPort: string;
+  certSource: "managed-acme" | "outside";
   salChecked: boolean;
 }
 

@@ -32,6 +32,10 @@ function access(partial: Partial<AccessConfig>): AccessConfig {
     proxyPort: "443",
     sourceAddress: "",
     publicName: "",
+    managementAddress: "",
+    publicInterface: "",
+    listenPort: "443",
+    certSource: "outside",
     salChecked: false,
     ...partial,
   };
@@ -83,7 +87,8 @@ export const seedDevices: Device[] = [
     access: "lan",
     accessConfig: access({
       sourceAddress: "10.40.8.8/32",
-      vpnNotes: "Direct on the management LAN. The SBCE whitelist allows only 10.40.8.8.",
+      managementAddress: "10.40.8.21",
+      certSource: "outside",
     }),
     apiUser: "api-cert",
   },
@@ -100,7 +105,8 @@ export const seedDevices: Device[] = [
     access: "lan",
     accessConfig: access({
       sourceAddress: "10.40.8.8/32",
-      vpnNotes: "Same LAN allow-list as the active controller. The standby uses 10.40.18.21.",
+      managementAddress: "10.40.18.21",
+      certSource: "outside",
     }),
     apiUser: "api-cert",
   },
@@ -118,6 +124,8 @@ export const seedDevices: Device[] = [
     accessConfig: access({
       apiUser: "api-read",
       sourceAddress: "10.40.8.8/32",
+      managementAddress: "10.40.8.10",
+      certSource: "outside",
     }),
     apiUser: "api-read",
   },
@@ -135,7 +143,11 @@ export const seedDevices: Device[] = [
     accessConfig: access({
       apiUser: "api-cert",
       publicName: "sbce.harbor.example",
+      publicInterface: "203.0.113.21",
+      managementAddress: "172.16.4.15",
+      listenPort: "443",
       sourceAddress: "203.0.113.10/32",
+      certSource: "outside",
     }),
     apiUser: "api-cert",
   },
@@ -152,7 +164,11 @@ export const seedDevices: Device[] = [
     access: "cloud",
     accessConfig: access({
       publicName: "sbce.northline.example",
+      publicInterface: "203.0.113.40",
+      managementAddress: "10.88.2.40",
+      listenPort: "443",
       sourceAddress: "203.0.113.10/32",
+      certSource: "managed-acme",
     }),
     apiUser: "api-cert",
   },
