@@ -195,6 +195,7 @@ export function UsersView() {
           );
         })}
       </div>
+      </div>
     </div>
   );
 }
