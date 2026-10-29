@@ -103,19 +103,42 @@ flowchart TD
   cloudallow --> sheet
   sheet --> probe[Test the TLS handshake from this container]
   probe --> log[Show the log]
-  report[Reporting for this customer]
-  report --> smtp{SMTP host filled in for this customer?}
-  smtp -->|Yes| customerMail[Send with that server]
-  smtp -->|No| hostMail[Send with the SMTP settings in .env]
-  customerMail --> test[Test SMTP shows the server error]
-  hostMail --> test
-  report --> signed{Entra sign-in succeeded?}
-  signed -->|No| mailOnly[Email only]
-  signed -->|Yes| consent[Ask permission to post to this customer's group]
-  consent --> teams[Post the expiration card]
-  class lancname,cname,relay,inside,teams gap
+  class lancname,cname,relay,inside gap
   classDef gap stroke-dasharray: 5 5
 ```
+
+```mermaid
+flowchart TD
+  alarms[Alarms, every customer in multiple mode]
+  alarms --> days{Days left on the certificate}
+  days -->|More than warn days| ok[No alert]
+  days -->|Warn days or fewer| warn[Warning]
+  days -->|Critical days or fewer| critical[Critical]
+  warn --> quiet{Quiet hours on?}
+  quiet -->|Yes| hold[Hold the warning]
+  quiet -->|No| send[Send now]
+  critical --> send
+  send --> who{Who receives it?}
+  who --> operators[Reporting email for this customer]
+  who --> teams{Entra sign-in can post to the group?}
+  teams -->|No| mailOnly[Email only]
+  teams -->|Yes| card[Expiration card to the Teams group]
+  operators --> smtp{SMTP host filled in for this customer?}
+  smtp -->|Yes| customerMail[That customer's server]
+  smtp -->|No| hostMail[SMTP settings in .env]
+  customerMail --> test[Test SMTP shows the server error]
+  hostMail --> test
+  csr[CSR upload link] --> opened{Customer opened it before it expires?}
+  opened -->|No| remind{Remind}
+  remind -->|Operators| operators
+  remind -->|Customer| customerAddr[Address on the request]
+  remind -->|Both| operators
+  remind -->|Both| customerAddr
+  class card gap
+  classDef gap stroke-dasharray: 5 5
+```
+
+Each customer sets the clock. Warning and critical are numbers of days, not a fixed time of day. The samples use 30 and 7, 21 and 7, and 14 and 3. Quiet hours holds a warning only. A critical alert still sends. The quiet-hours flag does not store a start or end time. The message can include the severity, customer, site, device, certificate name, expiration, days remaining, and TLS profiles. The reporting email is the operator list. A customer address is used only for a CSR reminder. SMTP is the customer's host, port, user, from address, and implicit TLS on 465, or the host `.env` when the host is left blank. A CSR link records whether they opened it, when, and how many reminders were sent. The link itself expires.
 
 The whitelist source is a reserved IP or CIDR, shared by every customer on this console. The API does not take a domain as a source. The domain is the name on the certificate. An EMS relay listens on an SBCE public interface and connects to the EMS. A high-availability member has its own public name. Let's Encrypt is the default for that name. The sheet stays a draft until the listen certificate is installed and a lab controller answers `https://{name}:{port}/api/auth/v1/token`.
 
