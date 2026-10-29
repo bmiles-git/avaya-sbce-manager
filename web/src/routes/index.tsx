@@ -31,7 +31,12 @@ function Home() {
         }
         const app = await entraClient(config);
         const result = await app.handleRedirectPromise();
-        const account = result?.account ?? app.getAllAccounts()[0] ?? null;
+        const accounts = app.getAllAccounts();
+        const saved = useApp.getState().session;
+        const account =
+          result?.account ??
+          accounts.find((item) => saved?.mode === "entra" && item.username.toLowerCase() === saved.username.toLowerCase()) ??
+          (accounts.length === 1 ? accounts[0] : null);
         if (account && !isAllowedAccount(account, config.allowedDomain)) {
           sessionStorage.setItem(
             "entra-denied",
@@ -41,8 +46,14 @@ function Home() {
           await app.logoutRedirect({ account, onRedirectNavigate: () => false });
           return;
         }
-        if (account) useApp.getState().signInEntra(sessionFromAccount(account));
-        else if (useApp.getState().session?.mode === "entra") useApp.getState().signOut();
+        if (account) {
+          app.setActiveAccount(account);
+          const next = sessionFromAccount(account);
+          const current = useApp.getState().session;
+          if (current?.mode !== "entra" || current.username.toLowerCase() !== next.username.toLowerCase()) {
+            useApp.getState().signInEntra(next);
+          }
+        } else if (useApp.getState().session?.mode === "entra") useApp.getState().signOut();
       } catch {
         if (useApp.getState().session?.mode === "entra") useApp.getState().signOut();
       } finally {

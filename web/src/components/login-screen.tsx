@@ -38,7 +38,8 @@ export function LoginScreen() {
       await app.loginRedirect({
         scopes: ["openid", "profile", "email"],
         redirectUri: config.redirectUri,
-        domainHint: allowedDomain,
+        domainHint: allowedDomain || undefined,
+        prompt: "select_account",
       });
     } catch (failure) {
       setEntraError(failure instanceof Error ? failure.message : "Microsoft login did not start.");
@@ -70,7 +71,7 @@ export function LoginScreen() {
             <h2 className="font-medium">Entra ID</h2>
             <span className="font-mono text-xs text-muted">:443</span>
           </div>
-          <p className="mb-4 text-sm text-muted">Sign in with the Microsoft account for @{allowedDomain}.</p>
+          <p className="mb-4 text-sm text-muted">Any @{allowedDomain} account can sign in. Microsoft asks which person.</p>
           <form className="space-y-3" onSubmit={entra}>
             {entraError ? <p className="text-sm text-danger">{entraError}</p> : null}
             <Button tone="primary" className="w-full" type="submit" disabled={busy}>

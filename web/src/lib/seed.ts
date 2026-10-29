@@ -375,7 +375,7 @@ export const seedAudits: AuditEvent[] = [
   {
     id: "aud_fail",
     at: isoInDays(-1),
-    actor: "Bryan Miles",
+    actor: "operator",
     action: "cert.renew",
     target: "UMCSN-SBCE-A1 / trunk-genesis",
     detail: "Re-read did not show the new notAfter.",
@@ -392,7 +392,7 @@ export const seedAudits: AuditEvent[] = [
   {
     id: "aud_2",
     at: isoInDays(-1),
-    actor: "Bryan Miles",
+    actor: "operator",
     action: "request.sent",
     target: "HBR-SBCE-01 / remote-workers",
     detail: "Temporary upload link issued for 7 days",
