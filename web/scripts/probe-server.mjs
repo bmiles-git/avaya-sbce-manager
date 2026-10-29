@@ -91,13 +91,12 @@ function tlsConnect(host, targetPort) {
 async function probe(body) {
   const lines = [];
   const parsed = parseTarget(body.endpoint);
-  const method = String(body.access ?? "public");
+  const method = String(body.access ?? "lan");
   lines.push(line("info", `Test from this host. Method ${method}.`));
-  if (method === "customer-vpn" || method === "tunnel") {
-    lines.push(line("info", "This test does not bring up a VPN or a tunnel. It uses whatever route this host already has."));
-  }
-  if (method === "sal") {
-    lines.push(line("info", "SAL has no partner API. This checks the management address, not the hosted concentrator."));
+  if (method === "cloud") {
+    lines.push(line("info", "Cloud uses the public name of the SBCE reverse proxy. The whitelist on the SBCE is this host's IP, not the name."));
+  } else {
+    lines.push(line("info", "LAN uses the management address. The SBCE firewall should allow only this host."));
   }
   if (parsed.error) {
     lines.push(line("fail", parsed.error));

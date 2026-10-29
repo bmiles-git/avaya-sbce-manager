@@ -12,7 +12,7 @@ export type ViewId =
   | "users";
 
 export type DeviceRole = "standalone" | "ems" | "ha-active" | "ha-standby";
-export type AccessMethod = "public" | "tunnel" | "customer-vpn" | "ssl-proxy";
+export type AccessMethod = "lan" | "cloud";
 export type CertKind = "identity" | "ca";
 export type RequestStatus =
   | "draft"
@@ -74,6 +74,8 @@ export interface AccessConfig {
   elementName: string;
   proxyHost: string;
   proxyPort: string;
+  sourceAddress: string;
+  publicName: string;
   salChecked: boolean;
 }
 

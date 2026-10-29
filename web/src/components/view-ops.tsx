@@ -71,8 +71,14 @@ const emptyAccess: AccessConfig = {
   elementName: "",
   proxyHost: "",
   proxyPort: "443",
+  sourceAddress: "",
+  publicName: "",
   salChecked: false,
 };
+
+function asMethod(value: string): AccessMethod {
+  return value === "lan" || value === "public" ? "lan" : "cloud";
+}
 
 export function AccessView() {
   const allDevices = useApp((s) => s.devices);
@@ -87,7 +93,7 @@ export function AccessView() {
   const [picked, setPicked] = useState(devices[0]?.id ?? "");
   const device = devices.find((item) => item.id === picked) ?? devices[0];
   const [endpoint, setEndpoint] = useState(device?.endpoint ?? "");
-  const [method, setMethod] = useState<AccessMethod>(device?.access ?? "public");
+  const [method, setMethod] = useState<AccessMethod>("lan");
   const [config, setConfig] = useState<AccessConfig>({ ...emptyAccess, ...device?.accessConfig, apiUser: device?.accessConfig?.apiUser || device?.apiUser || "" });
 
   useEffect(() => {
@@ -97,7 +103,7 @@ export function AccessView() {
     }
     setPicked(device.id);
     setEndpoint(device.endpoint);
-    setMethod((device.access as string) === "sal" ? "ssl-proxy" : device.access);
+    setMethod(asMethod(device.access as string));
     setConfig({ ...emptyAccess, ...device.accessConfig, apiUser: device.accessConfig?.apiUser || device.apiUser || "" });
   }, [device]);
 
@@ -112,33 +118,9 @@ export function AccessView() {
     setAccess(device.id, method, endpoint.trim(), next);
   }
 
-  function download() {
-    if (!device) return;
-    const text = [
-      "# Outbound tunnel for " + (customer?.name ?? "customer"),
-      "# Device: " + device.name,
-      "# This file records the path. It is not a live WireGuard server.",
-      "",
-      "[Interface]",
-      "Address = " + (config.tunnelAddress || "100.64.12.2/32"),
-      "",
-      "[Peer]",
-      "Endpoint = " + (config.customerEndpoint || "customer-public.example") + ":" + (config.tunnelPort || "51820"),
-      "AllowedIPs = " + (endpoint || device.endpoint) + "/32",
-      "PersistentKeepalive = 25",
-    ].join("\n");
-    const blob = new Blob([text], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${device.name}-tunnel.conf`;
-    link.click();
-    URL.revokeObjectURL(url);
-  }
-
   if (!device) {
     return (
-      <Panel title="VPN and SSL proxy">
+      <Panel title="How this console reaches the controller">
         <p className="text-sm text-muted">
           {customer?.name ?? "This customer"} has no devices yet. Add one under Devices, then come back to set how this console reaches it.
         </p>
@@ -162,7 +144,7 @@ export function AccessView() {
                 setPicked(e.target.value);
                 if (!next) return;
                 setEndpoint(next.endpoint);
-                setMethod(next.access);
+                setMethod(asMethod(next.access as string));
                 setConfig({ ...emptyAccess, ...next.accessConfig, apiUser: next.accessConfig?.apiUser || next.apiUser || "" });
               }}
             >
@@ -175,100 +157,42 @@ export function AccessView() {
           </Field>
           <Field label="How we reach it">
             <select className={inputClass} value={method} onChange={(e) => setMethod(e.target.value as AccessMethod)}>
-              <option value="public">Public management address</option>
-              <option value="customer-vpn">Customer VPN</option>
-              <option value="tunnel">Outbound tunnel</option>
-              <option value="ssl-proxy">SSL proxy</option>
+              <option value="lan">Direct connect (LAN)</option>
+              <option value="cloud">Cloud (SBCE reverse proxy)</option>
             </select>
           </Field>
-          <Field label="SBCE management address">
-            <input className={inputClass} value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="10.0.0.21" />
+          <Field label={method === "cloud" ? "Public name of the reverse proxy" : "Management address"}>
+            <input className={inputClass} value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder={method === "cloud" ? "sbce.customer.example" : "10.0.0.21"} />
           </Field>
-
-          {method === "public" ? (
-            <Field label="API user">
-              <input className={inputClass} value={config.apiUser} onChange={(e) => patch({ apiUser: e.target.value })} placeholder="api-cert" />
-            </Field>
-          ) : null}
-
-          {method === "customer-vpn" ? (
-            <>
-              <Field label="VPN type">
-                <select className={inputClass} value={config.vpnKind} onChange={(e) => patch({ vpnKind: e.target.value as AccessConfig["vpnKind"] })}>
-                  <option value="existing">Customer already has a VPN</option>
-                  <option value="ipsec">IPsec</option>
-                  <option value="ssl">SSL VPN</option>
-                </select>
-              </Field>
-              <Field label="VPN peer or concentrator">
-                <input className={inputClass} value={config.vpnPeer} onChange={(e) => patch({ vpnPeer: e.target.value })} placeholder="vpn.customer.example" />
-              </Field>
-              <Field label="Notes">
-                <textarea className={inputClass} rows={3} value={config.vpnNotes} onChange={(e) => patch({ vpnNotes: e.target.value })} placeholder="Who issues the VPN account, and which route reaches the management address." />
-              </Field>
-            </>
-          ) : null}
-
-          {method === "tunnel" ? (
-            <>
-              <Field label="Address inside the tunnel">
-                <input className={inputClass} value={config.tunnelAddress} onChange={(e) => patch({ tunnelAddress: e.target.value })} placeholder="100.64.12.2/32" />
-              </Field>
-              <Field label="Customer public endpoint">
-                <input className={inputClass} value={config.customerEndpoint} onChange={(e) => patch({ customerEndpoint: e.target.value })} placeholder="203.0.113.10" />
-              </Field>
-              <Field label="Tunnel port">
-                <input className={inputClass} value={config.tunnelPort} onChange={(e) => patch({ tunnelPort: e.target.value })} />
-              </Field>
-            </>
-          ) : null}
-
-          {method === "ssl-proxy" ? (
-            <>
-              <Field label="SSL proxy host">
-                <input className={inputClass} value={config.proxyHost} onChange={(e) => patch({ proxyHost: e.target.value })} placeholder="proxy.customer.example" />
-              </Field>
-              <Field label="SSL proxy port">
-                <input className={inputClass} value={config.proxyPort} onChange={(e) => patch({ proxyPort: e.target.value })} placeholder="443" />
-              </Field>
-              <p className="text-xs text-muted">The controller is reached by a TLS connection to this proxy. The management address above is the address on the far side.</p>
-            </>
-          ) : null}
+          <Field label="API user">
+            <input className={inputClass} value={config.apiUser} onChange={(e) => patch({ apiUser: e.target.value })} placeholder="api-cert" />
+          </Field>
+          <Field label={method === "cloud" ? "This container's public IP" : "This host's address on the LAN"}>
+            <input className={inputClass} value={config.sourceAddress} onChange={(e) => patch({ sourceAddress: e.target.value })} placeholder={method === "cloud" ? "203.0.113.10/32" : "10.0.0.8/32"} />
+          </Field>
 
           <div className="flex flex-wrap gap-2">
             <Button tone="primary" disabled={!admin} onClick={() => save(false)}>
               Save setup
             </Button>
-            {method === "tunnel" ? <Button onClick={download}>Download tunnel notes</Button> : null}
           </div>
-          <AccessTest endpoint={method === "ssl-proxy" && config.proxyHost ? config.proxyHost : endpoint} access={method} />
+          <AccessTest endpoint={endpoint} access={method} />
         </div>
       </Panel>
       <Panel title="What has to be true">
-        {method === "public" ? (
-          <p className="text-sm text-muted">This host must reach the management address on tcp/443. The SBCE allows this host and drops every other source.</p>
-        ) : null}
-        {method === "customer-vpn" ? (
+        {method === "lan" ? (
           <ol className="list-decimal space-y-2 pl-4 text-sm text-muted">
-            <li>The customer VPN lands on a network that can route to the management address.</li>
-            <li>This console uses that address for the Configuration API. It does not dial the VPN itself.</li>
-            <li>The certificate upload link stays on port 443. The customer does not need the VPN to return a certificate.</li>
+            <li>This host and the SBCE share a network. The management address stays private.</li>
+            <li>On the SBCE firewall, whitelist TCP port 443 from this host's address only. The source is an IP or CIDR, not a domain.</li>
+            <li>Do not put the management interface on a public address.</li>
           </ol>
-        ) : null}
-        {method === "tunnel" ? (
+        ) : (
           <ol className="list-decimal space-y-2 pl-4 text-sm text-muted">
-            <li>The customer initiates the tunnel. No inbound port is opened on the SBCE.</li>
-            <li>Save the management address that is reachable once the tunnel is up.</li>
-            <li>The downloaded file is the record of that path. There is no tunnel process on this host yet.</li>
+            <li>Add a reverse proxy relay. Listen HTTPS on the public interface, on the name in the certificate. Connect HTTPS to the management address.</li>
+            <li>Whitelist TCP port 443 from this container's public IP only. A domain cannot be the source.</li>
+            <li>This console connects to that public name. Test access checks the TLS handshake.</li>
           </ol>
-        ) : null}
-        {method === "ssl-proxy" ? (
-          <ol className="list-decimal space-y-2 pl-4 text-sm text-muted">
-            <li>This host opens TLS to the proxy host and port.</li>
-            <li>The proxy forwards that session to the SBCE management address.</li>
-            <li>The certificate upload link stays on port 443. The customer does not use the proxy to return a certificate.</li>
-          </ol>
-        ) : null}
+        )}
       </Panel>
     </div>
   );

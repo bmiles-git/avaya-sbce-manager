@@ -469,7 +469,7 @@ function DeviceForm({
   const [name, setName] = useState("");
   const [endpoint, setEndpoint] = useState("");
   const [role, setRole] = useState<DeviceRole>("standalone");
-  const [access, setAccess] = useState<AccessMethod>("tunnel");
+  const [access, setAccess] = useState<AccessMethod>("lan");
   return (
     <Panel title="New device">
       <form
@@ -516,10 +516,8 @@ function DeviceForm({
         </Field>
         <Field label="Reachability">
           <select className={inputClass} value={access} onChange={(e) => setAccess(e.target.value as AccessMethod)}>
-            <option value="public">public</option>
-            <option value="tunnel">outbound tunnel</option>
-            <option value="customer-vpn">customer VPN</option>
-            <option value="ssl-proxy">SSL proxy</option>
+            <option value="lan">LAN</option>
+            <option value="cloud">cloud</option>
           </select>
         </Field>
         <div className="flex items-end">

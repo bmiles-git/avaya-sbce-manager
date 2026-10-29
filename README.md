@@ -10,7 +10,7 @@ Console for certificate work on Avaya Session Border Controller for Enterprise 1
 - Sends the customer a temporary upload link. The link only accepts a certificate that matches the one it is replacing, including the names and the chain. It records whether they opened it, and it can send a reminder.
 - Takes a snapshot before a certificate or TLS profile change, and can put that snapshot back.
 - Reports what is due by email. Each customer can use its own SMTP server. A test button shows the mail server’s error instead of pretending the message was sent.
-- Checks that a controller can be reached, including through a VPN, a tunnel, or an SSL proxy, and keeps the log of that check.
+- Checks that a controller can be reached on the LAN, or through the SBCE reverse proxy on the internet. Both use TLS. The SBCE firewall allows only this container.
 - Signs people in with Microsoft Entra ID on port 443. A local account on port 8443 still works if Entra does not.
 
 ## How it works
@@ -38,7 +38,7 @@ flowchart TD
   mode -->|multiple| alarms[Alarms for every customer]
   alarms --> choose[Select a customer]
   mode -->|single| one[Alarms for the one customer]
-  choose --> pages[Devices, certificates, CSR, snapshots, VPN or proxy, reporting, audit]
+  choose --> pages[Devices, certificates, CSR, snapshots, access, reporting, audit]
   one --> pages
 ```
 
@@ -84,14 +84,15 @@ An ECDSA Teams key cannot use the CSR call. Avaya accepts only RSA 2048 or 4096 
 
 ```mermaid
 flowchart TD
-  reach[How do we reach this controller?]
-  reach --> method{Access method}
-  method -->|Public address| probe[TCP 443 and TLS from port 8443]
-  method -->|Customer VPN| vpn[Store the peer, then probe the management address]
-  method -->|Outbound tunnel| tun[Store the path]
-  method -->|SSL proxy| proxy[Store the proxy host and port]
-  proxy --> proxytls[Open TLS to the proxy]
-  vpn --> probe
+  reach[How does this container reach the controller?]
+  reach --> method{LAN or cloud?}
+  method -->|LAN| lanaddr[Management address stays on the private network]
+  lanaddr --> lanallow[Whitelist TCP 443 from this host's IP only]
+  lanallow --> probe[TLS handshake from this container]
+  method -->|Cloud| relay[SBCE reverse proxy listens HTTPS on a public name]
+  relay --> inside[Proxy connects HTTPS to the management address]
+  inside --> cloudallow[Whitelist TCP 443 from this container's public IP only]
+  cloudallow --> probe
   probe --> log[Show the log]
   report[Reporting for this customer]
   report --> smtp{SMTP host filled in for this customer?}
@@ -103,16 +104,36 @@ flowchart TD
   signed -->|No| mailOnly[Email only]
   signed -->|Yes| consent[Ask permission to post to this customer's group]
   consent --> teams[Post the expiration card]
-  class tun,proxytls,teams gap
+  class relay,inside,teams gap
   classDef gap stroke-dasharray: 5 5
 ```
+
+The whitelist source is an IP or CIDR. The API does not take a domain as a source. The domain is the name on the reverse-proxy certificate, which is the address this container connects to.
+
+## Reaching a controller
+
+Use one of these. Do not put the management interface itself on the internet.
+
+LAN:
+
+1. Put this container on a network that can route to the SBCE management address.
+2. On the SBCE firewall, add a whitelist rule. Interface is the management interface. Protocol is TCP. Destination port is 443. Source address is this host's address, for example `10.0.0.8/32`.
+3. In this console, set the device to **Direct connect (LAN)** and save that management address. **Test access** opens TLS to it.
+
+Cloud:
+
+1. On the public interface, add a reverse proxy relay. Listen protocol HTTPS. Listen domain is a name that resolves to that public interface, and the listen TLS profile is a certificate for that name. Connect protocol HTTPS, to the management address.
+2. Add a whitelist rule on that public interface. Protocol TCP, destination port 443, source address this container's public IP, for example `203.0.113.10/32`. A domain name is not a valid source.
+3. In this console, set the device to **Cloud** and save the public name. **Test access** checks the TLS handshake to that name. The certificate upload link for a customer stays on this console. The customer does not use the reverse proxy.
+
+The console does not create the relay or the whitelist yet. Those two steps are done on the SBCE. The dashed boxes in the diagram are those steps.
 
 Still to finish, in the order a renewal needs them:
 
 1. Post the prepared CSR with `POST /certificates/certificate-signing-request`, then read the controller with `GET /certificates`. The page already fills the body from the certificate on the trunk.
 2. A Let's Encrypt account, a DNS zone this host can write, and the customer's CNAME to that zone. The DNS-01 order is not sent yet.
 3. Install with `POST /certificates/{certificateType}`, re-read, and restore the snapshot if `notAfter` did not move. The audit line is written today. The controller is not called.
-4. Open TLS to the SSL proxy. The host and port are saved. The session is not opened.
+4. Create the reverse proxy relay and the firewall whitelist from this console. The steps are documented above. The page stores the name and the allowed source IP, and the test checks TLS. It does not write the relay or the rule yet.
 5. After Entra sign-in, ask that account for permission to post to the customer's group. The card is still a preview.
 6. A shared database only if two people must see the same customers and audit log. Each browser keeps its own copy until then.
 
@@ -130,9 +151,9 @@ Sign in on port 8443 as `admin` / `harbor-admin`, or use **Reset demo** if this 
 | Customer | Open | What you can touch |
 | --- | --- | --- |
 | All | Alarms | Certificates due across every customer. Open one to land on that device. |
-| UMCSN | Devices, Certificates, Snapshots | A high-availability pair. Genesis is a public CA. The EMS certificate is the customer's own CA. Teams Direct Routing is Let's Encrypt, with the DNS-01 name filled in. The active controller is reached by VPN. The EMS is reached by a tunnel. One snapshot is marked known good. The audit has a failed re-read. |
-| Harbor Health | CSR requests, Reporting | A CSR prepared from the remote-worker certificate, waiting on the customer. Upload link `#/upload/upl_harbor_demo`. SMTP is filled with `smtp.yourdomain.com`. |
-| Northline Transit | VPN / proxy, CSR requests | The controller is reached through `proxy.northline.example`. The Nice trunk is waiting because the public CA root changed. |
+| UMCSN | Devices, Certificates, Snapshots | A high-availability pair. Genesis is a public CA. The EMS certificate is the customer's own CA. Teams Direct Routing is Let's Encrypt, with the DNS-01 name filled in. Both controllers are on the LAN, allowed from `10.40.8.8/32`. One snapshot is marked known good. The audit has a failed re-read. |
+| Harbor Health | CSR requests, Reporting, Access | A CSR prepared from the remote-worker certificate, waiting on the customer. Upload link `#/upload/upl_harbor_demo`. SMTP is filled with `smtp.yourdomain.com`. The controller is reached in the cloud at `sbce.harbor.example`, allowed from `203.0.113.10/32`. |
+| Northline Transit | Access, CSR requests | Cloud path at `sbce.northline.example`. The Nice trunk is waiting because the public CA root changed. |
 
 ## 1. Install Docker and git
 
@@ -316,6 +337,6 @@ On the 10.2 management interface, allow this host to tcp/443 and leave the defau
 
 An HA pair is one configuration. This host still needs tcp/443 to both management addresses. The active is written first, then the standby after the health check.
 
-If the management address is private, use the customer VPN or an SSL proxy. The customer does not need that path to return a certificate. The upload link is on port 443 of this console.
+If the management address is private, use LAN. If it is not, use the cloud reverse proxy. The customer does not need that path to return a certificate. The upload link is on port 443 of this console.
 
 For a managed trunk, publish `_acme-challenge.<fqdn>` as a CNAME to the target shown on that certificate. Do not put an HTTP challenge on the SBCE.
