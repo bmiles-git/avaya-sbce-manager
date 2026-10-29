@@ -102,7 +102,7 @@ export function CertDetail({ certId }: { certId: string }) {
               value={cert.issuance ?? "customer-ca"}
               onChange={(e) => update(cert.id, { issuance: e.target.value as IssuanceMode })}
             >
-              <option value="customer-ca">Customer CA</option>
+              <option value="customer-ca">Outside CA · public or customer</option>
               <option value="managed-acme">Managed · Let's Encrypt</option>
             </select>
           </Field>
@@ -129,7 +129,7 @@ export function CertDetail({ certId }: { certId: string }) {
               {renewError ? <p className="text-sm text-danger">{renewError}</p> : null}
             </div>
           ) : (
-            <p className="text-xs text-muted">The customer CA signs the CSR. A different root waits for acceptance before it is installed.</p>
+            <p className="text-xs text-muted">A public CA is the usual signer. The customer's own CA is the other. Either one returns the chain on the upload link. A different root waits for acceptance before it is installed.</p>
           )}
           <Field label="Public FQDN">
             <input className={inputClass} disabled={!admin} value={req.fqdn} onChange={(e) => patch({ fqdn: e.target.value })} />

@@ -558,7 +558,7 @@ export const useApp = create<AppState>()(
         const device = cert && get().devices.find((item) => item.id === cert.deviceId);
         if (!cert || !device) return "Certificate not found.";
         if (cert.kind !== "identity") return "Only an identity certificate is issued this way.";
-        if (cert.issuance !== "managed-acme") return "This trunk uses the customer CA. Generate a CSR instead.";
+        if (cert.issuance !== "managed-acme") return "This trunk is signed by an outside CA. Generate a CSR instead.";
         if (device.locked) return `${device.name} is locked.`;
         if (device.maintenance) return `${device.name} is in maintenance mode.`;
         if (!cert.requirements?.fqdn) return "Set the public FQDN before a DNS-01 renewal.";
@@ -933,7 +933,7 @@ export const useApp = create<AppState>()(
           ),
           snapshots: [
             snapshotFor(device, "pre-change", `Before applying returned cert ${row.certName}`),
-            snapshotFor(device, "post-change", managed ? `Applied Let's Encrypt chain for ${row.certName}` : `Applied customer-signed ${row.certName}`),
+            snapshotFor(device, "post-change", managed ? `Applied Let's Encrypt chain for ${row.certName}` : `Applied signed certificate for ${row.certName}`),
             ...(peer && !peer.locked ? [snapshotFor(peer, "post-change", `Standby ${peer.name} received the same ${row.certName}`)] : []),
             ...get().snapshots,
           ],

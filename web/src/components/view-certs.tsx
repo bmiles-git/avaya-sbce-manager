@@ -97,7 +97,7 @@ export function Certificates() {
                     <div className="text-xs text-muted">
                       {cert.requirements ? USE_LABEL[cert.requirements.use] : "Unread"}
                       {" · "}
-                      {cert.issuance === "managed-acme" ? "Let's Encrypt" : "Customer CA"}
+                      {cert.issuance === "managed-acme" ? "Let's Encrypt" : "Outside CA"}
                     </div>
                     <div className="font-mono text-xs text-muted">{cert.subject}</div>
                   </td>

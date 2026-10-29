@@ -6,7 +6,7 @@ Console for certificate work on Avaya Session Border Controller for Enterprise 1
 
 - Holds customers, sites, and controllers. A high-availability pair is one certificate set: the standby is updated with the active.
 - Watches expiration and shows alarms across every customer. The other pages stay on the customer you select.
-- Renews a certificate in one of two ways. The customer’s own CA signs a CSR, or this console manages the name with Let’s Encrypt.
+- Renews a certificate in one of two ways. An outside CA signs a CSR, usually a public CA and sometimes the customer's own CA, or this console manages the name with Let's Encrypt.
 - Sends the customer a temporary upload link. The link only accepts a certificate that matches the one it is replacing, including the names and the chain. It records whether they opened it, and it can send a reminder.
 - Takes a snapshot before a certificate or TLS profile change, and can put that snapshot back.
 - Reports what is due by email. Each customer can use its own SMTP server. A test button shows the mail server’s error instead of pretending the message was sent.
@@ -18,7 +18,7 @@ Console for certificate work on Avaya Session Border Controller for Enterprise 1
 1. An administrator signs in. Entra ID is accepted only when the account’s email domain matches `ENTRA_ALLOWED_DOMAIN`. Port 8443 uses a local username and password and does not go to Microsoft.
 2. The console keeps customers, devices, certificates, and the audit log in the browser that signed in. Two browsers do not share that data.
 3. A certificate change starts with a snapshot of the controller. The write goes to the Avaya configuration API only after that snapshot exists. If the re-read does not show the new certificate, the snapshot is what you restore.
-4. For a customer CA, the console builds a CSR and a one-time link. The customer uploads the signed certificate and chain. The console checks it before anyone can install it. For a managed certificate, the public DNS name points at the Let’s Encrypt challenge, and the console installs the issued certificate on both members of a high-availability pair.
+4. For an outside CA, the console builds a CSR and a one-time link. A public CA is the usual signer. The customer's own CA is the other option. The same link takes the signed certificate and chain either way. The console checks it before anyone can install it. For a managed certificate, the public DNS name points at the Let's Encrypt challenge, and the console installs the issued certificate on both members of a high-availability pair.
 5. Caddy terminates HTTPS for this console. Port 443 is the Entra listener. Port 8443 is the local administrator listener and the only place the reachability test and SMTP send from.
 
 ## Flows
@@ -46,8 +46,10 @@ flowchart TD
 flowchart TD
   certs[Certificate on one controller]
   certs --> mode{Who issues it?}
-  mode -->|Customer CA| csr[Build a CSR]
-  csr --> link[One-time upload link]
+  mode -->|Outside CA| csr[Build a CSR]
+  csr --> signer{Who signs the CSR?}
+  signer -->|Public CA, the usual case| link[One-time upload link]
+  signer -->|The customer's own CA| link
   link --> seen{Customer opened the link?}
   seen -->|No| remind[Email a reminder]
   remind --> link
