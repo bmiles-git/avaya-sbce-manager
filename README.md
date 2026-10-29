@@ -312,7 +312,7 @@ sudo ufw status verbose
 sudo systemctl restart docker
 ```
 
-Outbound, this host also needs tcp/443 to each EMS or SBCE management address, tcp/443 to Let's Encrypt, and DNS to your resolvers. No other inbound port is required.
+Outbound, this host needs DNS, tcp/443 to Let's Encrypt, and a path to each controller. On the LAN that path is tcp/443 to both management addresses. In the cloud it is the public name and the listen port on the sheet, not the management address. No other inbound port is required on this host.
 
 ## 6. Build and start
 
@@ -366,10 +366,12 @@ sudo docker compose up -d --build
 
 ## SBCE firewall
 
-On the 10.2 management interface, allow this host to tcp/443 and leave the default drop. Do not open tcp/222 for this console.
+Leave the default drop. Do not open tcp/222 for this console, and do not put the management interface on the internet.
 
-An HA pair is one configuration. This host still needs tcp/443 to both management addresses. The active is written first, then the standby after the health check.
+LAN. On the management interface, allow this host's reserved address to tcp/443. An HA pair is one certificate set, but each member has its own management address, so the allow rule has to cover both. The active is written first. The standby is written only after a re-read shows it did not already change.
 
-If the management address is private, use LAN. If it is not, use the cloud reverse proxy. The customer does not need that path to return a certificate. The upload link is on port 443 of this console.
+Cloud. The public interface allows this container's reserved address to the listen port on the sheet. That port is not 443. 443, 80, 5060, 5061, 3478, and 50000–55000 are already used. 9443 is the suggestion. The reverse proxy listens there and connects to the management address inside. Each HA member has its own public name.
+
+The customer does not use either path to return a certificate. The upload link is on port 443 of this console.
 
 For a managed trunk, publish `_acme-challenge.<fqdn>` as a CNAME to the target shown on that certificate. Do not put an HTTP challenge on the SBCE.
