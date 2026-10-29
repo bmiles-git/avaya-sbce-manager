@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { formatWhen } from "@/lib/format";
+import { checkListenPort, recommendedListenPort } from "@/lib/listen-port";
 import { devicesFor } from "@/lib/scope";
 import { useApp } from "@/lib/store";
 import type { AccessConfig, AccessMethod, AuditEvent, AuditStep } from "@/lib/types";
@@ -75,7 +76,7 @@ const emptyAccess: AccessConfig = {
   publicName: "",
   managementAddress: "",
   publicInterface: "",
-  listenPort: "443",
+  listenPort: recommendedListenPort,
   certSource: "outside",
   salChecked: false,
 };
@@ -86,7 +87,8 @@ function asMethod(value: string): AccessMethod {
 
 function relayPlan(device: { name: string; role: string }, method: AccessMethod, endpoint: string, config: AccessConfig) {
   const source = config.sourceAddress || "this-container-ip/32";
-  const port = config.listenPort || "443";
+  const port = config.listenPort || recommendedListenPort;
+  const portNote = checkListenPort(port);
   const inside = config.managementAddress || (method === "lan" ? endpoint : "management-address");
   const name = endpoint || config.publicName || "sbce.example.com";
   const listenIp = config.publicInterface || "public-interface-ip";
@@ -123,10 +125,11 @@ function relayPlan(device: { name: string; role: string }, method: AccessMethod,
   const front = device.role === "ems" ? "This relay listens on an SBCE public interface and connects to the EMS." : "This relay listens on this SBCE and connects to its management address.";
   return [
     `Reverse proxy relay for ${device.name}`,
+    portNote.text,
     front,
     `Relay name: console-${device.name}`,
     `Listen IP: ${listenIp}`,
-    `Listen port: ${port}`,
+    `Listen port: ${port}${portNote.level === "block" ? " — refused" : ""}`,
     "Listen protocol: HTTPS",
     `Listen domain: ${name}`,
     "Listen TLS profile: the certificate named below",
@@ -237,8 +240,11 @@ export function AccessView() {
                 <input className={inputClass} value={config.publicInterface} onChange={(e) => patch({ publicInterface: e.target.value })} placeholder="203.0.113.21" />
               </Field>
               <Field label="Listen port">
-                <input className={inputClass} value={config.listenPort} onChange={(e) => patch({ listenPort: e.target.value })} placeholder="443" />
+                <input className={inputClass} value={config.listenPort} onChange={(e) => patch({ listenPort: e.target.value })} placeholder={recommendedListenPort} />
               </Field>
+              <p className={checkListenPort(config.listenPort).level === "ok" ? "text-xs text-muted" : "text-xs text-danger"}>
+                {checkListenPort(config.listenPort).text}
+              </p>
               <Field label={device.role === "ems" ? "EMS management address" : "Management address"}>
                 <input className={inputClass} value={config.managementAddress} onChange={(e) => patch({ managementAddress: e.target.value })} placeholder="10.0.0.21" />
               </Field>
@@ -262,11 +268,14 @@ export function AccessView() {
           </Field>
 
           <div className="flex flex-wrap gap-2">
-            <Button tone="primary" disabled={!admin} onClick={() => save(false)}>
+            <Button tone="primary" disabled={!admin || (method === "cloud" && checkListenPort(config.listenPort).level === "block")} onClick={() => save(false)}>
               Save setup
             </Button>
           </div>
-          <AccessTest endpoint={endpoint} access={method} />
+          <AccessTest
+            endpoint={method === "cloud" ? `${endpoint}:${config.listenPort || recommendedListenPort}` : endpoint}
+            access={method}
+          />
         </div>
       </Panel>
       <Panel

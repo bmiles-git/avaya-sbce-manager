@@ -22,8 +22,19 @@ function parseTarget(raw) {
     host = value.slice(0, split);
     targetPort = Number(value.slice(split + 1));
   }
-  if (!Number.isInteger(targetPort) || targetPort !== 443) {
-    return { error: "The SBCE management API is tcp/443. Other ports are refused." };
+  if (!Number.isInteger(targetPort) || targetPort < 1 || targetPort > 65535) {
+    return { error: "Use a port from 1 to 65535." };
+  }
+  const reserved = {
+    80: "Port 80 is HTTP. The relay should not listen there.",
+    443: "Port 443 is the management API and the TURN TLS example. Pick another port, such as 9443.",
+    3478: "Port 3478 is TURN/STUN.",
+    5060: "Port 5060 is SIP.",
+    5061: "Port 5061 is SIP over TLS.",
+  };
+  if (reserved[targetPort]) return { error: reserved[targetPort] };
+  if (targetPort >= 50000 && targetPort <= 55000) {
+    return { error: "Ports 50000–55000 are the media relay range." };
   }
   if (!/^[A-Za-z0-9.-]{1,253}$/.test(host)) {
     return { error: "That host is not a name or an IPv4 address." };

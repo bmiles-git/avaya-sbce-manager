@@ -124,7 +124,7 @@ The whitelist source is an IP or CIDR. The API does not take a domain as a sourc
 Open **Access**, pick the SBCE or the EMS, and enter:
 
 - The management address. For an EMS this is the EMS, not the SBCE.
-- For cloud, the public interface IP, the listen port, and the public name that will be on the certificate.
+- For cloud, the public interface IP, a listen port, and the public name that will be on the certificate. 443, 5060, 5061, 3478, and 50000–55000 are refused because the 10.2 configuration uses them for the management API, SIP, TURN, or media. 9443 is the suggested port. 8443 and 8080 are allowed with a warning.
 - Let's Encrypt or an outside CA. Let's Encrypt prints the DNS-01 name. An outside CA prints the common name and subject alternative name for the same CSR used on a trunk.
 - This container's IP. That is the only firewall source. A domain is not a valid source.
 
