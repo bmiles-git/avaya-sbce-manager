@@ -46,7 +46,7 @@ export function GuestUpload({ token }: { token: string }) {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-4 py-12">
-      <img src="/gage-logo.svg" alt="Gage Technologies" className="mb-8 h-9 w-auto self-start" />
+      <p className="mb-8 text-sm font-semibold tracking-tight">SBCE Control</p>
       {closed ? (
         <section className="rounded-md border border-line bg-surface p-6">
           <h1 className="text-xl font-medium">This link is not usable</h1>

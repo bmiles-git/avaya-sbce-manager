@@ -64,8 +64,7 @@ export function Console() {
       <div className="flex min-h-screen">
         <aside className="hidden w-56 shrink-0 flex-col border-r border-paper/10 bg-slate text-paper md:flex">
           <div className="px-4 py-4">
-            <img src="/gage-logo-light.svg" alt="Gage Technologies" className="h-8 w-auto" />
-            <p className="mt-2 text-xs text-paper/60">SBCE Control</p>
+            <p className="text-sm font-semibold tracking-tight text-paper">SBCE Control</p>
           </div>
           <nav className="flex flex-1 flex-col gap-1 px-2">
             <button
@@ -119,7 +118,7 @@ export function Console() {
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-surface px-4 py-3">
             <div className="flex items-center gap-3">
-              <img src="/gage-logo.svg" alt="Gage Technologies" className="h-8 w-auto md:hidden" />
+              <p className="text-sm font-semibold md:hidden">SBCE Control</p>
               <div>
                 <p className="text-sm font-medium">{page}</p>
                 <p className="text-xs text-muted">

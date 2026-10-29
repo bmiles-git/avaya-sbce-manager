@@ -50,7 +50,7 @@ export function LoginScreen() {
   return (
     <main className="grid min-h-screen lg:grid-cols-2">
       <section className="flex flex-col justify-between bg-slate p-8 text-paper lg:border-r lg:border-paper/10">
-        <img src="/gage-logo-light.svg" alt="Gage Technologies" className="h-10 w-auto self-start" />
+        <p className="text-sm font-semibold tracking-tight text-paper">SBCE Control</p>
         <div className="my-10 max-w-md">
           <h1 className="text-3xl font-semibold tracking-tight">Certificate changes with a way back.</h1>
           <p className="mt-3 text-paper/75">
