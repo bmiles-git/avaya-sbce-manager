@@ -77,7 +77,7 @@ const emptyAccess: AccessConfig = {
   managementAddress: "",
   publicInterface: "",
   listenPort: recommendedListenPort,
-  certSource: "outside",
+  certSource: "managed-acme",
   salChecked: false,
 };
 
@@ -85,7 +85,7 @@ function asMethod(value: string): AccessMethod {
   return value === "lan" || value === "public" ? "lan" : "cloud";
 }
 
-function relayPlan(device: { name: string; role: string }, method: AccessMethod, endpoint: string, config: AccessConfig) {
+function relayPlan(device: { name: string; role: string; haPairId: string | null }, method: AccessMethod, endpoint: string, config: AccessConfig) {
   const source = config.sourceAddress || "this-container-ip/32";
   const port = config.listenPort || recommendedListenPort;
   const portNote = checkListenPort(port);
@@ -106,10 +106,14 @@ function relayPlan(device: { name: string; role: string }, method: AccessMethod,
           "Key: RSA 2048 or 4096. Avaya's CSR call does not accept ECDSA.",
           "Install the returned certificate and chain as the listen TLS profile before saving the relay.",
         ];
+  const ha = device.haPairId ? "This member needs its own public name. After an install, read both members. Do not assume the active copied the certificate." : "";
   if (method === "lan") {
     return [
+      "Draft. Do not write this until Test access succeeds.",
       `${device.name} is on the LAN. No reverse proxy.`,
       `This container connects to ${inside} on TCP 443.`,
+      "The source address below must stay reserved. If it changes, this controller will stop allowing the console.",
+      ha,
       "",
       "Firewall whitelist",
       "Interface: the management interface",
@@ -124,9 +128,11 @@ function relayPlan(device: { name: string; role: string }, method: AccessMethod,
   }
   const front = device.role === "ems" ? "This relay listens on an SBCE public interface and connects to the EMS." : "This relay listens on this SBCE and connects to its management address.";
   return [
+    "Draft. Install the listen certificate, then prove https://name:port/api/auth/v1/token on a lab controller before creating this relay.",
     `Reverse proxy relay for ${device.name}`,
     portNote.text,
     front,
+    ha,
     `Relay name: console-${device.name}`,
     `Listen IP: ${listenIp}`,
     `Listen port: ${port}${portNote.level === "block" ? " — refused" : ""}`,
@@ -142,6 +148,7 @@ function relayPlan(device: { name: string; role: string }, method: AccessMethod,
     "Interface: the public interface that owns the listen IP",
     "Protocol: TCP",
     `Source: ${source}`,
+    "That address must stay reserved. One console uses it for every customer.",
     `Destination port: ${port}`,
     "Do not publish the management interface itself.",
     "",

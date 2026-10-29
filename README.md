@@ -117,7 +117,7 @@ flowchart TD
   classDef gap stroke-dasharray: 5 5
 ```
 
-The whitelist source is an IP or CIDR. The API does not take a domain as a source. The domain is the name on the certificate, which is the address this container connects to. An EMS relay listens on an SBCE public interface and connects to the EMS management address.
+The whitelist source is a reserved IP or CIDR, shared by every customer on this console. The API does not take a domain as a source. The domain is the name on the certificate. An EMS relay listens on an SBCE public interface and connects to the EMS. A high-availability member has its own public name. Let's Encrypt is the default for that name. The sheet stays a draft until the listen certificate is installed and a lab controller answers `https://{name}:{port}/api/auth/v1/token`.
 
 ## Reaching a controller
 
@@ -130,16 +130,22 @@ Open **Access**, pick the SBCE or the EMS, and enter:
 
 The page prints the sheet. On the LAN it is a whitelist only, and the management interface stays private. In the cloud it is a reverse proxy relay that listens HTTPS on the public name and connects HTTPS to the management address, plus the whitelist. Copy it onto the SBCE. **Test access** checks the TLS handshake.
 
-The console does not create the relay, the whitelist, or the certificate yet. Those are the dashed boxes.
+The console does not create the relay, the whitelist, or the certificate yet. No configuration API call is made until Test access succeeds. The API user, when one is stored, is limited to certificate read, create, and install, plus the TLS profile calls. Its password stays on the server, not in the browser.
 
-Still to finish, in the order a renewal needs them:
+## Closed
 
-1. Post the prepared CSR with `POST /certificates/certificate-signing-request`, then read the controller with `GET /certificates`. The page already fills the body from the certificate on the trunk.
-2. A Let's Encrypt account, a DNS zone this host can write, and the customer's CNAME to that zone. The DNS-01 order is not sent yet.
-3. Install with `POST /certificates/{certificateType}`, re-read, and restore the snapshot if `notAfter` did not move. The audit line is written today. The controller is not called.
-4. Create the reverse proxy relay, the listen certificate, and the firewall whitelist from this console. Access already prints the sheet from the SBCE or EMS details. It does not write them yet.
-5. After Entra sign-in, ask that account for permission to post to the customer's group. The card is still a preview.
-6. A shared database only if two people must see the same customers and audit log. Each browser keeps its own copy until then.
+- The listen port is chosen. 443, 80, 5060, 5061, 3478, and 50000–55000 are refused. 9443 is the suggestion.
+- The listen certificate is installed before the relay. Let's Encrypt is the default. An outside CA uses the trunk CSR path and stays RSA 2048 or 4096.
+- Cloud mode allow-lists one reserved address for this container, on every customer.
+- One public name per high-availability member. After a write, both members are read.
+- The previous certificate and the audit have to be stored on this server before the first live install. The browser copy is not enough.
+
+Still to finish, and only these:
+
+1. On a lab controller, prove the reverse proxy returns `POST /api/auth/v1/token`. If it does not, keep LAN, or put a TLS proxy in front of the management address. Do not force the SBCE relay.
+2. Post the prepared CSR, run the DNS-01 order, install with `POST /certificates/{certificateType}`, and re-read both members. Nothing is sent to the SBCE today.
+3. Move the previous certificate and the audit onto the server before that first install.
+4. After Entra sign-in, ask that account for permission to post to the customer's group. The card is still a preview.
 
 Do the steps below in order. Starting Docker before DNS and the firewall is the usual reason the first certificate request fails.
 
