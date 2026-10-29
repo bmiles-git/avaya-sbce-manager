@@ -17,13 +17,13 @@ Console for certificate work on Avaya Session Border Controller for Enterprise 1
 
 1. An administrator signs in. Entra ID is accepted only when the account’s email domain matches `ENTRA_ALLOWED_DOMAIN`. Port 8443 uses a local username and password and does not go to Microsoft.
 2. The console keeps customers, devices, certificates, and the audit log in the browser that signed in. Two browsers do not share that data.
-3. A certificate change starts with a snapshot of the controller. The write goes to the Avaya configuration API only after that snapshot exists. If the re-read does not show the new certificate, the snapshot is what you restore.
-4. For an outside CA, the console builds a CSR and a one-time link. A public CA is the usual signer. The customer's own CA is the other option. The same link takes the signed certificate and chain either way. The console checks it before anyone can install it. For a managed certificate, the public DNS name points at the Let's Encrypt challenge, and the console installs the issued certificate on both members of a high-availability pair.
+3. The design of a change is a snapshot first, then `POST /certificates/{certificateType}` with the PEM and the trust chain. A private key is not sent on that call. The console re-reads with `GET /certificates`. If `notAfter` did not move, the snapshot is what you restore.
+4. For an outside CA, the console prepares the CSR from the certificate already on the trunk. The design is to post that body to `POST /certificates/certificate-signing-request`. A public CA is the usual signer. The customer's own CA is the other option. The same upload link takes the signed certificate and chain either way, and the console checks it before install. That CSR call accepts only RSA 2048 or 4096. For a managed certificate, the customer's name is a CNAME to a DNS zone this host can write, Let's Encrypt answers DNS-01, and the issued chain is installed on both members of a high-availability pair. The dashed boxes in the flows below are the calls that are not connected yet.
 5. Caddy terminates HTTPS for this console. Port 443 is the Entra listener. Port 8443 is the local administrator listener and the only place the reachability test and SMTP send from.
 
 ## Flows
 
-Solid boxes are wired to something outside this page. Dashed boxes are still decided inside the browser. They record the step and the audit line, but they do not call Avaya, Let's Encrypt, or Microsoft Graph yet.
+Solid boxes already run. Dashed boxes are recorded here and are not called yet.
 
 ```mermaid
 flowchart TD
@@ -36,74 +36,88 @@ flowchart TD
   port -->|8443| local[Local username and password]
   local --> alarms
   alarms --> choose[Select a customer]
-  choose --> work{What are you doing?}
-  work --> certs[Certificates]
-  work --> reach[Reachability]
-  work --> report[Reporting]
+  choose --> devices[Devices]
+  choose --> certs[Certificates]
+  choose --> csrpage[CSR requests]
+  choose --> snaps[Snapshots]
+  choose --> reach[VPN or proxy]
+  choose --> report[Reporting]
+  choose --> audit[Audit]
 ```
 
 ```mermaid
 flowchart TD
-  certs[Certificate on one controller]
-  certs --> mode{Who issues it?}
-  mode -->|Outside CA| csr[Build a CSR]
-  csr --> signer{Who signs the CSR?}
+  certs[Certificate already on the controller]
+  certs --> read[GET /certificates]
+  read --> mode{Who issues the replacement?}
+  mode -->|Outside CA| prep[Prepare the CSR from that certificate]
+  prep --> postcsr[POST /certificates/certificate-signing-request]
+  postcsr --> signer{Who signs it?}
   signer -->|Public CA, the usual case| link[One-time upload link]
   signer -->|The customer's own CA| link
   link --> seen{Customer opened the link?}
   seen -->|No| remind[Email a reminder]
   remind --> link
-  seen -->|Yes| upload[Customer uploads the PEM]
-  upload --> valid{Names and chain match the trunk?}
+  seen -->|Yes| upload[Customer uploads the PEM and chain]
+  upload --> valid{Names and chain match?}
   valid -->|No| reject[Refuse the file]
   valid -->|New root| trust[Operator accepts the supplier]
   trust --> ready[Ready to install]
   valid -->|Yes| ready
-  mode -->|This console| dns[Publish the DNS-01 name]
-  dns --> le[Ask Let's Encrypt]
+  mode -->|This console| dns[CNAME into a DNS zone this host can write]
+  dns --> acct[Let's Encrypt account on this host]
+  acct --> le[DNS-01 order]
   le --> ready
-  ready --> lock{Controller locked or in maintenance?}
+  ready --> lock{Locked or in maintenance?}
   lock -->|Yes| stop[Stop and keep the old certificate]
   lock -->|No| snap[Save a pre-change snapshot]
-  snap --> write[Install the identity and point the TLS profiles]
+  snap --> write[POST /certificates/cert with the PEM and chain]
   write --> pair{High-availability pair?}
-  pair -->|Yes| standby[Install the same certificate on the standby]
-  pair -->|No| readback[Re-read the certificate]
+  pair -->|Yes| standby[Same install on the standby]
+  pair -->|No| readback[GET /certificates again]
   standby --> readback
   readback --> moved{notAfter moved?}
   moved -->|No| back[Restore the snapshot]
   moved -->|Yes| done[Mark the request complete]
-  class csr,le,write,standby,readback,back gap
+  class read,postcsr,acct,le,write,standby,readback,back gap
   classDef gap stroke-dasharray: 5 5
 ```
+
+An ECDSA Teams key cannot use the CSR call. Avaya accepts only RSA 2048 or 4096 there. Teams Direct Routing stays on the Let's Encrypt path.
 
 ```mermaid
 flowchart TD
   reach[How do we reach this controller?]
   reach --> method{Access method}
-  method -->|Public address| probe[TCP 443 and TLS handshake from port 8443]
-  method -->|VPN or tunnel| probe
-  method -->|SSL proxy| sal[TLS to the proxy, then on to the controller]
+  method -->|Public address| probe[TCP 443 and TLS from port 8443]
+  method -->|Customer VPN| vpn[Store the peer, then probe the management address]
+  method -->|Outbound tunnel| tun[Store the path]
+  method -->|SSL proxy| proxy[Store the proxy host and port]
+  proxy --> proxytls[Open TLS to the proxy]
+  vpn --> probe
   probe --> log[Show the log]
   report[Reporting for this customer]
-  report --> smtp{SMTP host filled in?}
-  smtp -->|Yes| customerMail[Send with that customer's server]
+  report --> smtp{SMTP host filled in for this customer?}
+  smtp -->|Yes| customerMail[Send with that server]
   smtp -->|No| hostMail[Send with the SMTP settings in .env]
   customerMail --> test[Test SMTP shows the server error]
   hostMail --> test
-  report --> teams[Post the expiring-certificate card to Teams]
-  class sal,teams gap
+  report --> signed{Entra sign-in succeeded?}
+  signed -->|No| mailOnly[Email only]
+  signed -->|Yes| consent[Ask permission to post to this customer's group]
+  consent --> teams[Post the expiration card]
+  class tun,proxytls,teams gap
   classDef gap stroke-dasharray: 5 5
 ```
 
 Still to finish, in the order a renewal needs them:
 
-1. Post the prepared CSR. The page now fills `POST /certificates/certificate-signing-request` from the certificate already on the trunk: common name, subject, and subject alternative names. The controller still has to be called before a public CA can sign it. That API accepts only RSA 2048 or 4096, so an ECDSA Teams key cannot go through it.
-2. Let's Encrypt DNS-01 needs three things before it can run: a Let's Encrypt account for this host, a DNS zone we can write a TXT record in, and the customer's name published as a CNAME to that zone. The install onto the controller is item 3.
-3. Call the configuration API that was supplied. Read with `GET /certificates`. Install with `POST /certificates/{certificateType}` using the PEM and the trust chain. A private key upload is not accepted on that call. Re-read after the write, and restore from the snapshot if `notAfter` did not move.
-4. SSL proxy, instead of SAL. The page stores the proxy host and port. The TLS session to the controller through that proxy is not opened yet.
-5. Teams. When Entra sign-in succeeded, use that same login to request permission to post to the customer's group. The card is still only a preview.
-6. Nothing further, unless two people must see the same customers and audit log. Today each browser keeps its own copy. A shared database is only needed for that.
+1. Post the prepared CSR with `POST /certificates/certificate-signing-request`, then read the controller with `GET /certificates`. The page already fills the body from the certificate on the trunk.
+2. A Let's Encrypt account, a DNS zone this host can write, and the customer's CNAME to that zone. The DNS-01 order is not sent yet.
+3. Install with `POST /certificates/{certificateType}`, re-read, and restore the snapshot if `notAfter` did not move. The audit line is written today. The controller is not called.
+4. Open TLS to the SSL proxy. The host and port are saved. The session is not opened.
+5. After Entra sign-in, ask that account for permission to post to the customer's group. The card is still a preview.
+6. A shared database only if two people must see the same customers and audit log. Each browser keeps its own copy until then.
 
 Do the steps below in order. Starting Docker before DNS and the firewall is the usual reason the first certificate request fails.
 
