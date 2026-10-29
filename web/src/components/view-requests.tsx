@@ -107,7 +107,7 @@ export function Requests() {
               <textarea className={inputClass} rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional. Included with the CSR." />
             </Field>
             <Button tone="primary" type="submit" disabled={!admin || !certIdSafe || selectedDevice?.locked}>
-              Generate sample CSR
+              Prepare CSR from this certificate
             </Button>
               </>
             )}

@@ -201,7 +201,7 @@ export function Reporting() {
             </div>
           </article>
           <p className="mt-3 text-xs text-muted">
-            Production posts this card with MSAL delegated permissions to an existing channel. This preview does not call Graph.
+            After an Entra sign-in, Send uses that same Microsoft login to ask for permission to post to this group. The card is not sent until that permission is granted.
           </p>
         </Panel>
         <Panel title="Sent">

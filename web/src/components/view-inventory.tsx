@@ -516,7 +516,7 @@ function DeviceForm({
             <option value="public">public</option>
             <option value="tunnel">outbound tunnel</option>
             <option value="customer-vpn">customer VPN</option>
-            <option value="sal">Avaya SAL</option>
+            <option value="ssl-proxy">SSL proxy</option>
           </select>
         </Field>
         <div className="flex items-end">

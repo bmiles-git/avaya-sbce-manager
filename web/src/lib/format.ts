@@ -29,30 +29,42 @@ export function isoInDays(days: number) {
   return d.toISOString();
 }
 
-export function fakeCsr(input: {
+export function csrRequestFromCert(input: {
   name: string;
   subject: string;
   sans: string[];
   device: string;
-  profiles: string[];
   keyAlgorithm?: string;
-  use?: string;
+  fqdn?: string;
 }) {
-  const san = input.sans.length ? input.sans.map((name) => `DNS:${name}`).join(", ") : "none";
-  const body = [
-    "SBCE Control sample CSR. Preview only, not a real PKCS#10.",
-    `Certificate: ${input.name}`,
-    input.use ? `Use: ${input.use}` : "",
-    `Device: ${input.device}`,
-    `Subject: ${input.subject}`,
-    `SubjectAltName: ${san}`,
-    input.keyAlgorithm ? `Key: ${input.keyAlgorithm}` : "",
-    `TLS profiles: ${input.profiles.join(", ") || "none"}`,
-    `Generated: ${new Date().toISOString()}`,
+  const field = (key: string) => input.subject.match(new RegExp(`(?:^|,)\\s*${key}=([^,]+)`, "i"))?.[1]?.trim() ?? "";
+  const commonName = field("CN") || input.fqdn || input.name;
+  const names = (input.sans.length ? input.sans : [commonName]).slice(0, 10);
+  const ecdsa = (input.keyAlgorithm ?? "").startsWith("ECDSA");
+  const keySize = input.keyAlgorithm === "RSA-4096" ? 4096 : 2048;
+  const body = {
+    country: field("C") || "US",
+    state: field("ST"),
+    locality: field("L"),
+    organization: field("O"),
+    organizationalUnit: field("OU"),
+    commonName,
+    keySize,
+    keyUsageExtensionList: ["DIGITAL_SIGNATURE", "KEY_ENCIPHERMENT"],
+    extendedKeyUsageExtensionList: ["SERVER_AUTH", "CLIENT_AUTH"],
+    subjectAltNameList: names,
+    passphrase: "",
+    contactName: "",
+    contactEmail: "",
+  };
+  return [
+    `Prepared from the certificate already stored for ${input.device} / ${input.name}.`,
+    "When the controller is reachable this body is posted to POST /certificates/certificate-signing-request.",
+    ecdsa ? "Avaya's CSR call only accepts RSA 2048 or 4096. An ECDSA Teams key cannot be requested through that call." : "",
+    JSON.stringify(body, null, 2),
   ]
     .filter(Boolean)
     .join("\n");
-  return `-----BEGIN CERTIFICATE REQUEST-----\n${body}\n-----END CERTIFICATE REQUEST-----\n`;
 }
 
 export function looksLikeCert(pem: string) {

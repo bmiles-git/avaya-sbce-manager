@@ -10,7 +10,7 @@ Console for certificate work on Avaya Session Border Controller for Enterprise 1
 - Sends the customer a temporary upload link. The link only accepts a certificate that matches the one it is replacing, including the names and the chain. It records whether they opened it, and it can send a reminder.
 - Takes a snapshot before a certificate or TLS profile change, and can put that snapshot back.
 - Reports what is due by email. Each customer can use its own SMTP server. A test button shows the mail server’s error instead of pretending the message was sent.
-- Checks that a controller can be reached, including through a VPN, a tunnel, or Avaya SAL, and keeps the log of that check.
+- Checks that a controller can be reached, including through a VPN, a tunnel, or an SSL proxy, and keeps the log of that check.
 - Signs people in with Microsoft Entra ID on port 443. A local account on port 8443 still works if Entra does not.
 
 ## How it works
@@ -83,7 +83,7 @@ flowchart TD
   reach --> method{Access method}
   method -->|Public address| probe[TCP 443 and TLS handshake from port 8443]
   method -->|VPN or tunnel| probe
-  method -->|Avaya SAL| sal[Record what you confirmed in the SAL partner UI]
+  method -->|SSL proxy| sal[TLS to the proxy, then on to the controller]
   probe --> log[Show the log]
   report[Reporting for this customer]
   report --> smtp{SMTP host filled in?}
@@ -98,12 +98,12 @@ flowchart TD
 
 Still to finish, in the order a renewal needs them:
 
-1. A real CSR from the controller, not the sample text the page generates now.
-2. A real Let's Encrypt DNS-01 order. The page checks a locally built chain and does not talk to the ACME directory.
-3. The Avaya configuration API calls behind install, re-read, and restore. The audit steps are written, and the certificate date moves in this console, but nothing is sent to the SBCE.
-4. A SAL session. There is no partner API, so the page only stores that someone checked the hosted UI.
-5. The Teams post. The card is previewed here and is not sent through Graph.
-6. A store that is not the browser. Two people who sign in do not see the same customers, devices, or audit log.
+1. Post the prepared CSR. The page now fills `POST /certificates/certificate-signing-request` from the certificate already on the trunk: common name, subject, and subject alternative names. The controller still has to be called before a public CA can sign it. That API accepts only RSA 2048 or 4096, so an ECDSA Teams key cannot go through it.
+2. Let's Encrypt DNS-01 needs three things before it can run: a Let's Encrypt account for this host, a DNS zone we can write a TXT record in, and the customer's name published as a CNAME to that zone. The install onto the controller is item 3.
+3. Call the configuration API that was supplied. Read with `GET /certificates`. Install with `POST /certificates/{certificateType}` using the PEM and the trust chain. A private key upload is not accepted on that call. Re-read after the write, and restore from the snapshot if `notAfter` did not move.
+4. SSL proxy, instead of SAL. The page stores the proxy host and port. The TLS session to the controller through that proxy is not opened yet.
+5. Teams. When Entra sign-in succeeded, use that same login to request permission to post to the customer's group. The card is still only a preview.
+6. Nothing further, unless two people must see the same customers and audit log. Today each browser keeps its own copy. A shared database is only needed for that.
 
 Do the steps below in order. Starting Docker before DNS and the firewall is the usual reason the first certificate request fails.
 
@@ -290,6 +290,6 @@ On the 10.2 management interface, allow this host to tcp/443 and leave the defau
 
 An HA pair is one configuration. This host still needs tcp/443 to both management addresses. The active is written first, then the standby after the health check.
 
-If the management address is private, use the customer VPN or SAL. The customer does not need that path to return a certificate. The upload link is on port 443 of this console.
+If the management address is private, use the customer VPN or an SSL proxy. The customer does not need that path to return a certificate. The upload link is on port 443 of this console.
 
 For a managed trunk, publish `_acme-challenge.<fqdn>` as a CNAME to the target shown on that certificate. Do not put an HTTP challenge on the SBCE.

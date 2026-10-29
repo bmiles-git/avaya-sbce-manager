@@ -69,6 +69,8 @@ const emptyAccess: AccessConfig = {
   bpLinkId: "",
   gatewayName: "",
   elementName: "",
+  proxyHost: "",
+  proxyPort: "443",
   salChecked: false,
 };
 
@@ -95,7 +97,7 @@ export function AccessView() {
     }
     setPicked(device.id);
     setEndpoint(device.endpoint);
-    setMethod(device.access);
+    setMethod((device.access as string) === "sal" ? "ssl-proxy" : device.access);
     setConfig({ ...emptyAccess, ...device.accessConfig, apiUser: device.accessConfig?.apiUser || device.apiUser || "" });
   }, [device]);
 
@@ -136,7 +138,7 @@ export function AccessView() {
 
   if (!device) {
     return (
-      <Panel title="VPN and SAL">
+      <Panel title="VPN and SSL proxy">
         <p className="text-sm text-muted">
           {customer?.name ?? "This customer"} has no devices yet. Add one under Devices, then come back to set how this console reaches it.
         </p>
@@ -176,7 +178,7 @@ export function AccessView() {
               <option value="public">Public management address</option>
               <option value="customer-vpn">Customer VPN</option>
               <option value="tunnel">Outbound tunnel</option>
-              <option value="sal">Avaya SAL</option>
+              <option value="ssl-proxy">SSL proxy</option>
             </select>
           </Field>
           <Field label="SBCE management address">
@@ -221,23 +223,15 @@ export function AccessView() {
             </>
           ) : null}
 
-          {method === "sal" ? (
+          {method === "ssl-proxy" ? (
             <>
-              <Field label="SAL gateway">
-                <input className={inputClass} value={config.gatewayName} onChange={(e) => patch({ gatewayName: e.target.value })} placeholder="customer-salgw" />
+              <Field label="SSL proxy host">
+                <input className={inputClass} value={config.proxyHost} onChange={(e) => patch({ proxyHost: e.target.value })} placeholder="proxy.customer.example" />
               </Field>
-              <Field label="Managed element">
-                <input className={inputClass} value={config.elementName} onChange={(e) => patch({ elementName: e.target.value })} placeholder={device.name} />
+              <Field label="SSL proxy port">
+                <input className={inputClass} value={config.proxyPort} onChange={(e) => patch({ proxyPort: e.target.value })} placeholder="443" />
               </Field>
-              <Field label="SEID">
-                <input className={inputClass} value={config.seid} onChange={(e) => patch({ seid: e.target.value })} placeholder="(000)000-0000" />
-              </Field>
-              <Field label="BP Link ID">
-                <input className={inputClass} value={config.bpLinkId} onChange={(e) => patch({ bpLinkId: e.target.value })} />
-              </Field>
-              <p className="text-xs text-muted">
-                {config.salChecked ? "Marked reachable in the partner UI." : "Not checked yet. SAL has no partner API, so this is a record of what you confirm at salpartnerui.sal.avaya.com."}
-              </p>
+              <p className="text-xs text-muted">The controller is reached by a TLS connection to this proxy. The management address above is the address on the far side.</p>
             </>
           ) : null}
 
@@ -246,13 +240,8 @@ export function AccessView() {
               Save setup
             </Button>
             {method === "tunnel" ? <Button onClick={download}>Download tunnel notes</Button> : null}
-            {method === "sal" ? (
-              <Button disabled={!admin || !config.seid || !config.bpLinkId} onClick={() => save(true)}>
-                Mark reachable
-              </Button>
-            ) : null}
           </div>
-          <AccessTest endpoint={endpoint} access={method} />
+          <AccessTest endpoint={method === "ssl-proxy" && config.proxyHost ? config.proxyHost : endpoint} access={method} />
         </div>
       </Panel>
       <Panel title="What has to be true">
@@ -273,12 +262,11 @@ export function AccessView() {
             <li>The downloaded file is the record of that path. There is no tunnel process on this host yet.</li>
           </ol>
         ) : null}
-        {method === "sal" ? (
+        {method === "ssl-proxy" ? (
           <ol className="list-decimal space-y-2 pl-4 text-sm text-muted">
-            <li>The customer SAL Gateway registers outbound to the hosted concentrator with this BP Link ID.</li>
-            <li>The SBCE is a managed element on that gateway. Remote access is enabled.</li>
-            <li>An operator confirms the element is green at the partner UI, then marks it reachable here.</li>
-            <li>A SAL session is still a person at the keyboard. It does not renew a certificate by itself.</li>
+            <li>This host opens TLS to the proxy host and port.</li>
+            <li>The proxy forwards that session to the SBCE management address.</li>
+            <li>The certificate upload link stays on port 443. The customer does not use the proxy to return a certificate.</li>
           </ol>
         ) : null}
       </Panel>

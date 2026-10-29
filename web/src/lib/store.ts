@@ -48,7 +48,7 @@ function syncHaCerts(certs: Certificate[], devices: Device[]): Certificate[] {
   }
   return next;
 }
-import { fakeCsr, isoInDays, uid } from "@/lib/format";
+import { csrRequestFromCert, isoInDays, uid } from "@/lib/format";
 import {
   seedAudits,
   seedCerts,
@@ -661,14 +661,13 @@ export const useApp = create<AppState>()(
           certId: cert.id,
           certName: cert.name,
           status: "csr_generated",
-          csrPem: fakeCsr({
+          csrPem: csrRequestFromCert({
             name: cert.name,
             subject: cert.subject,
             sans: cert.sans,
             device: device.name,
-            profiles: cert.tlsProfiles,
             keyAlgorithm: cert.requirements?.keyAlgorithm,
-            use: cert.requirements?.use,
+            fqdn: cert.requirements?.fqdn,
           }),
           signedPem: "",
           token: uid("upl"),
@@ -695,7 +694,7 @@ export const useApp = create<AppState>()(
             audit(actor, "request.create", `${device.name} / ${cert.name}`, cert.subject),
             ...get().audits,
           ],
-          toasts: [toast(`Sample CSR ready for ${device.name} / ${cert.name}.`, "ok"), ...get().toasts],
+          toasts: [toast(`CSR prepared from the certificate on ${device.name} / ${cert.name}.`, "ok"), ...get().toasts],
         });
         return null;
       },
