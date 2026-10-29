@@ -1,7 +1,8 @@
 import { blankAcme } from "@/lib/cert-check";
 import { certRequirements, TEAMS_CIPHERS } from "@/lib/cert-requirements";
-import { isoInDays } from "@/lib/format";
+import { csrRequestFromCert, isoInDays } from "@/lib/format";
 import type {
+  AccessConfig,
   AuditEvent,
   Certificate,
   CertRequest,
@@ -13,6 +14,26 @@ import type {
   Site,
   Snapshot,
 } from "@/lib/types";
+
+function access(partial: Partial<AccessConfig>): AccessConfig {
+  return {
+    apiUser: "api-cert",
+    vpnKind: "existing",
+    vpnPeer: "",
+    vpnNotes: "",
+    tunnelAddress: "",
+    tunnelPort: "51820",
+    customerEndpoint: "",
+    seid: "",
+    bpLinkId: "",
+    gatewayName: "",
+    elementName: "",
+    proxyHost: "",
+    proxyPort: "443",
+    salChecked: false,
+    ...partial,
+  };
+}
 
 export const seedUsers: LocalUser[] = [
   {
@@ -58,6 +79,11 @@ export const seedDevices: Device[] = [
     maintenance: false,
     tags: ["production", "sip-trunk"],
     access: "customer-vpn",
+    accessConfig: access({
+      vpnKind: "ipsec",
+      vpnPeer: "vpn.umcsn.example",
+      vpnNotes: "Sample. The customer VPN already routes this host to 10.40.8.21 and 10.40.18.21.",
+    }),
     apiUser: "api-cert",
   },
   {
@@ -71,6 +97,11 @@ export const seedDevices: Device[] = [
     maintenance: false,
     tags: ["production", "sip-trunk"],
     access: "customer-vpn",
+    accessConfig: access({
+      vpnKind: "ipsec",
+      vpnPeer: "vpn.umcsn.example",
+      vpnNotes: "Same VPN as the active controller. The standby uses 10.40.18.21.",
+    }),
     apiUser: "api-cert",
   },
   {
@@ -84,6 +115,12 @@ export const seedDevices: Device[] = [
     maintenance: false,
     tags: ["management"],
     access: "tunnel",
+    accessConfig: access({
+      apiUser: "api-read",
+      tunnelAddress: "100.64.8.10/32",
+      customerEndpoint: "203.0.113.40",
+      tunnelPort: "51820",
+    }),
     apiUser: "api-read",
   },
   {
@@ -97,6 +134,7 @@ export const seedDevices: Device[] = [
     maintenance: false,
     tags: ["remote-worker"],
     access: "public",
+    accessConfig: access({ apiUser: "api-cert" }),
     apiUser: "api-cert",
   },
   {
@@ -109,7 +147,11 @@ export const seedDevices: Device[] = [
     locked: false,
     maintenance: true,
     tags: ["itsp", "genesis"],
-    access: "tunnel",
+    access: "ssl-proxy",
+    accessConfig: access({
+      proxyHost: "proxy.northline.example",
+      proxyPort: "443",
+    }),
     apiUser: "api-cert",
   },
 ];
@@ -299,8 +341,14 @@ export const seedRequests: CertRequest[] = [
     certId: "cert_hbr",
     certName: "remote-workers",
     status: "awaiting_upload",
-    csrPem:
-      "-----BEGIN CERTIFICATE REQUEST-----\nSBCE Control sample CSR. Preview only, not a real PKCS#10.\nCertificate: remote-workers\nDevice: HBR-SBCE-01\nSubject: CN=rw.harbor.example\nSubjectAltName: DNS:rw.harbor.example\nTLS profiles: TLS-RW-Server\n-----END CERTIFICATE REQUEST-----\n",
+    csrPem: csrRequestFromCert({
+      name: "remote-workers",
+      subject: "CN=rw.harbor.example",
+      sans: ["rw.harbor.example"],
+      device: "HBR-SBCE-01",
+      keyAlgorithm: "ECDSA-P256",
+      fqdn: "rw.harbor.example",
+    }),
     signedPem: "",
     token: "upl_harbor_demo",
     tokenExpires: isoInDays(6),
@@ -315,6 +363,35 @@ export const seedRequests: CertRequest[] = [
     lastRemindedAt: null,
     reminderCount: 0,
     chainNote: "",
+  },
+  {
+    id: "req_nlt",
+    deviceId: "d_nlt",
+    certId: "cert_nlt",
+    certName: "trunk-nice",
+    status: "chain_review",
+    csrPem: csrRequestFromCert({
+      name: "trunk-nice",
+      subject: "CN=sbc.northline.example",
+      sans: ["sbc.northline.example"],
+      device: "NLT-SBCE-01",
+      keyAlgorithm: "RSA-2048",
+      fqdn: "sbc.northline.example",
+    }),
+    signedPem: "",
+    token: "upl_northline_demo",
+    tokenExpires: isoInDays(4),
+    notes: "The public CA changed. Accept the new root before install.",
+    createdAt: isoInDays(-2),
+    updatedAt: isoInDays(-1),
+    openCount: 2,
+    firstOpenedAt: isoInDays(-2),
+    lastOpenedAt: isoInDays(-1),
+    customerEmail: "noc@northline.example",
+    remind: "them",
+    lastRemindedAt: isoInDays(-1),
+    reminderCount: 1,
+    chainNote: "Root: Sectigo. Held for operator acceptance.",
   },
 ];
 
@@ -343,6 +420,11 @@ export const seedProfiles: ReportProfile[] = [
     emailTo: "voice@harbor.example",
     quietHours: true,
     template: defaultTemplate,
+    smtpHost: "smtp.yourdomain.com",
+    smtpPort: 587,
+    smtpUser: "alerts",
+    smtpPass: "",
+    smtpFrom: "alerts@yourdomain.com",
   },
   {
     id: "rp_north",

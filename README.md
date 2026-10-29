@@ -112,6 +112,17 @@ What you need before step 1:
 - A public name, such as `sbce.example.com`
 - The address of this host. Both listeners use it. There is no separate management network.
 
+## Sample walk
+
+Sign in on port 8443 as `admin` / `harbor-admin`, or use **Reset demo** if this browser already has older data. Each customer is one module:
+
+| Customer | Open | What you can touch |
+| --- | --- | --- |
+| All | Alarms | Certificates due across every customer. Open one to land on that device. |
+| UMCSN | Devices, Certificates, Snapshots | A high-availability pair. Genesis is a public CA. The EMS certificate is the customer's own CA. Teams Direct Routing is Let's Encrypt, with the DNS-01 name filled in. The active controller is reached by VPN. The EMS is reached by a tunnel. One snapshot is marked known good. The audit has a failed re-read. |
+| Harbor Health | CSR requests, Reporting | A CSR prepared from the remote-worker certificate, waiting on the customer. Upload link `#/upload/upl_harbor_demo`. SMTP is filled with `smtp.yourdomain.com`. |
+| Northline Transit | VPN / proxy, CSR requests | The controller is reached through `proxy.northline.example`. The Nice trunk is waiting because the public CA root changed. |
+
 ## 1. Install Docker and git
 
 Rocky, RHEL, or Alma:
