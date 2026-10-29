@@ -84,15 +84,24 @@ An ECDSA Teams key cannot use the CSR call. Avaya accepts only RSA 2048 or 4096 
 
 ```mermaid
 flowchart TD
-  reach[How does this container reach the controller?]
-  reach --> method{LAN or cloud?}
-  method -->|LAN| lanaddr[Management address stays on the private network]
-  lanaddr --> lanallow[Whitelist TCP 443 from this host's IP only]
-  lanallow --> probe[TLS handshake from this container]
-  method -->|Cloud| relay[SBCE reverse proxy listens HTTPS on a public name]
-  relay --> inside[Proxy connects HTTPS to the management address]
+  reach[Pick an SBCE or the EMS]
+  reach --> details[Management address, public interface, certificate name, this container's IP]
+  details --> method{LAN or cloud?}
+  method -->|LAN| lancert{Certificate}
+  method -->|Cloud| cloudcert{Certificate}
+  lancert -->|Let's Encrypt| lancname[DNS-01 name for the management address]
+  lancert -->|Outside CA| lancsr[CSR for that name]
+  cloudcert -->|Let's Encrypt| cname[DNS-01 name for the public name]
+  cloudcert -->|Outside CA| csr[CSR for the public name]
+  lancname --> lanallow[Whitelist TCP 443 from this host's IP only]
+  lancsr --> lanallow
+  cname --> relay[Reverse proxy: listen HTTPS on the public interface]
+  csr --> relay
+  relay --> inside[Connect HTTPS to the SBCE or EMS management address]
   inside --> cloudallow[Whitelist TCP 443 from this container's public IP only]
-  cloudallow --> probe
+  lanallow --> sheet[Copy the firewall sheet]
+  cloudallow --> sheet
+  sheet --> probe[Test the TLS handshake from this container]
   probe --> log[Show the log]
   report[Reporting for this customer]
   report --> smtp{SMTP host filled in for this customer?}
@@ -104,38 +113,31 @@ flowchart TD
   signed -->|No| mailOnly[Email only]
   signed -->|Yes| consent[Ask permission to post to this customer's group]
   consent --> teams[Post the expiration card]
-  class relay,inside,teams gap
+  class lancname,cname,relay,inside,teams gap
   classDef gap stroke-dasharray: 5 5
 ```
 
-The whitelist source is an IP or CIDR. The API does not take a domain as a source. The domain is the name on the reverse-proxy certificate, which is the address this container connects to.
+The whitelist source is an IP or CIDR. The API does not take a domain as a source. The domain is the name on the certificate, which is the address this container connects to. An EMS relay listens on an SBCE public interface and connects to the EMS management address.
 
 ## Reaching a controller
 
-Open **Access**, pick the SBCE or the EMS, and fill in the management address, the public interface, the name that will be on the certificate, and this container's IP. Choose Let's Encrypt or an outside CA. The page writes the reverse proxy relay and the firewall whitelist for that device. Copy it onto the SBCE. The console does not create the relay yet.
+Open **Access**, pick the SBCE or the EMS, and enter:
 
-Use one of these. Do not put the management interface itself on the internet.
+- The management address. For an EMS this is the EMS, not the SBCE.
+- For cloud, the public interface IP, the listen port, and the public name that will be on the certificate.
+- Let's Encrypt or an outside CA. Let's Encrypt prints the DNS-01 name. An outside CA prints the common name and subject alternative name for the same CSR used on a trunk.
+- This container's IP. That is the only firewall source. A domain is not a valid source.
 
-LAN:
+The page prints the sheet. On the LAN it is a whitelist only, and the management interface stays private. In the cloud it is a reverse proxy relay that listens HTTPS on the public name and connects HTTPS to the management address, plus the whitelist. Copy it onto the SBCE. **Test access** checks the TLS handshake.
 
-1. Put this container on a network that can route to the SBCE management address.
-2. On the SBCE firewall, add a whitelist rule. Interface is the management interface. Protocol is TCP. Destination port is 443. Source address is this host's address, for example `10.0.0.8/32`.
-3. In this console, set the device to **Direct connect (LAN)** and save that management address. **Test access** opens TLS to it.
-
-Cloud:
-
-1. On the public interface, add a reverse proxy relay. Listen protocol HTTPS. Listen domain is a name that resolves to that public interface, and the listen TLS profile is a certificate for that name. Connect protocol HTTPS, to the management address.
-2. Add a whitelist rule on that public interface. Protocol TCP, destination port 443, source address this container's public IP, for example `203.0.113.10/32`. A domain name is not a valid source.
-3. In this console, set the device to **Cloud** and save the public name. **Test access** checks the TLS handshake to that name. The certificate upload link for a customer stays on this console. The customer does not use the reverse proxy.
-
-The console does not create the relay or the whitelist yet. Those two steps are done on the SBCE. The dashed boxes in the diagram are those steps.
+The console does not create the relay, the whitelist, or the certificate yet. Those are the dashed boxes.
 
 Still to finish, in the order a renewal needs them:
 
 1. Post the prepared CSR with `POST /certificates/certificate-signing-request`, then read the controller with `GET /certificates`. The page already fills the body from the certificate on the trunk.
 2. A Let's Encrypt account, a DNS zone this host can write, and the customer's CNAME to that zone. The DNS-01 order is not sent yet.
 3. Install with `POST /certificates/{certificateType}`, re-read, and restore the snapshot if `notAfter` did not move. The audit line is written today. The controller is not called.
-4. Create the reverse proxy relay and the firewall whitelist from this console. The steps are documented above. The page stores the name and the allowed source IP, and the test checks TLS. It does not write the relay or the rule yet.
+4. Create the reverse proxy relay, the listen certificate, and the firewall whitelist from this console. Access already prints the sheet from the SBCE or EMS details. It does not write them yet.
 5. After Entra sign-in, ask that account for permission to post to the customer's group. The card is still a preview.
 6. A shared database only if two people must see the same customers and audit log. Each browser keeps its own copy until then.
 
@@ -154,8 +156,8 @@ Sign in on port 8443 as `admin` / `harbor-admin`, or use **Reset demo** if this 
 | --- | --- | --- |
 | All | Alarms | Certificates due across every customer. Open one to land on that device. |
 | UMCSN | Devices, Certificates, Snapshots | A high-availability pair. Genesis is a public CA. The EMS certificate is the customer's own CA. Teams Direct Routing is Let's Encrypt, with the DNS-01 name filled in. Both controllers are on the LAN, allowed from `10.40.8.8/32`. One snapshot is marked known good. The audit has a failed re-read. |
-| Harbor Health | CSR requests, Reporting, Access | A CSR prepared from the remote-worker certificate, waiting on the customer. Upload link `#/upload/upl_harbor_demo`. SMTP is filled with `smtp.yourdomain.com`. The controller is reached in the cloud at `sbce.harbor.example`, allowed from `203.0.113.10/32`. |
-| Northline Transit | Access, CSR requests | Cloud path at `sbce.northline.example`. The Nice trunk is waiting because the public CA root changed. |
+| Harbor Health | CSR requests, Reporting, Access | A CSR prepared from the remote-worker certificate, waiting on the customer. Upload link `#/upload/upl_harbor_demo`. SMTP is filled with `smtp.yourdomain.com`. Access prints a cloud relay for `sbce.harbor.example` on `203.0.113.21`, connecting to `172.16.4.15`, allowed from `203.0.113.10/32`, with an outside-CA certificate. |
+| Northline Transit | Access, CSR requests | Access prints a cloud relay for `sbce.northline.example` with a Let's Encrypt certificate. The Nice trunk is waiting because the public CA root changed. |
 
 ## 1. Install Docker and git
 
