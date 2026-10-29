@@ -22,6 +22,7 @@ export function Inventory() {
   const toggleMaintenance = useApp((s) => s.toggleMaintenance);
   const updateDevice = useApp((s) => s.updateDevice);
   const role = useApp((s) => s.session?.role);
+  const single = useApp((s) => s.customerMode === "single");
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState<"customer" | "site" | "device" | null>(null);
   const [removing, setRemoving] = useState(false);
@@ -51,10 +52,12 @@ export function Inventory() {
       <div className="space-y-4 xl:col-span-3">
         <div className="flex flex-wrap gap-2">
           <input className={cxInput} placeholder="Search site, device, or endpoint" value={query} onChange={(e) => setQuery(e.target.value)} />
-          <Button onClick={() => setOpen(open === "customer" ? null : "customer")} disabled={role !== "admin"}>
-            Add customer
-          </Button>
-          {customer ? (
+          {single ? null : (
+            <Button onClick={() => setOpen(open === "customer" ? null : "customer")} disabled={role !== "admin"}>
+              Add customer
+            </Button>
+          )}
+          {customer && !single ? (
             <Button
               tone="danger"
               disabled={role !== "admin"}

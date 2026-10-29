@@ -100,6 +100,7 @@ interface AppState extends DataSlice {
   session: Session | null;
   view: ViewId;
   selectedCustomerId: string;
+  customerMode: "single" | "multiple";
   selectedDeviceId: string | null;
   focusCertId: string | null;
   focusRequestId: string | null;
@@ -109,6 +110,8 @@ interface AppState extends DataSlice {
   signInLocal: (username: string, password: string) => Promise<string | null>;
   signInEntra: (account: Pick<Session, "name" | "username" | "role">) => void;
   signOut: () => void;
+  applySingleCustomer: (name: string) => void;
+  setCustomerMode: (mode: "single" | "multiple") => void;
   createUser: (input: { username: string; name: string; password: string; role: LocalUser["role"]; customerIds: string[] }) => Promise<string | null>;
   setUserPassword: (id: string, password: string) => Promise<string | null>;
   updateUser: (id: string, patch: { role?: LocalUser["role"]; customerIds?: string[]; name?: string }) => string | null;
@@ -200,6 +203,7 @@ export const useApp = create<AppState>()(
       session: null,
       view: "overview",
       selectedCustomerId: "c_umcsn",
+      customerMode: "multiple",
       selectedDeviceId: "d_a1",
       focusCertId: null,
       focusRequestId: null,
@@ -244,6 +248,44 @@ export const useApp = create<AppState>()(
       },
 
       signOut: () => set({ session: null, view: "overview" }),
+
+      applySingleCustomer: (name) => {
+        const wanted = name.trim();
+        const match = wanted
+          ? get().customers.find((item) => item.name.toLowerCase() === wanted.toLowerCase())
+          : undefined;
+        if (match) {
+          if (get().selectedCustomerId !== match.id) set({ selectedCustomerId: match.id });
+          return;
+        }
+        if (!wanted && get().customers.length > 0) {
+          if (!get().customers.some((item) => item.id === get().selectedCustomerId)) {
+            set({ selectedCustomerId: get().customers[0].id });
+          }
+          return;
+        }
+        if (!wanted) return;
+        const code = wanted.replace(/[^A-Za-z0-9]/g, "").slice(0, 8).toUpperCase() || "SITE";
+        const row: Customer = { id: uid("c"), name: wanted, code, locale: "en-US", timezone: "America/Los_Angeles" };
+        const profile: ReportProfile = {
+          id: uid("rp"),
+          customerId: row.id,
+          name: `${row.name} alerts`,
+          warnDays: 30,
+          criticalDays: 7,
+          teamsChannel: "",
+          emailTo: "",
+          quietHours: true,
+          template: defaultTemplate,
+        };
+        set({
+          customers: [...get().customers, row],
+          profiles: [...get().profiles, profile],
+          selectedCustomerId: row.id,
+        });
+      },
+
+      setCustomerMode: (mode) => set({ customerMode: mode }),
 
       createUser: async (input) => {
         if (get().session?.role !== "admin") return "Only an administrator can add a user.";
@@ -1030,6 +1072,7 @@ export const useApp = create<AppState>()(
         session: state.session,
         view: state.view,
         selectedCustomerId: state.selectedCustomerId,
+        customerMode: state.customerMode,
         selectedDeviceId: state.selectedDeviceId,
         customers: state.customers,
         sites: state.sites,

@@ -24,6 +24,7 @@ import { Reporting } from "@/components/view-reporting";
 import { AccessView, AuditView, Snapshots } from "@/components/view-ops";
 import { UsersView } from "@/components/view-users";
 import { customersFor } from "@/lib/scope";
+import { loadDeployment } from "@/lib/deployment";
 
 const NAV: { id: ViewId; label: string; icon: typeof Server }[] = [
   { id: "inventory", label: "Devices", icon: Server },
@@ -43,6 +44,9 @@ export function Console() {
   const customers = useApp((s) => s.customers);
   const customerId = useApp((s) => s.selectedCustomerId);
   const selectCustomer = useApp((s) => s.selectCustomer);
+  const customerMode = useApp((s) => s.customerMode);
+  const setCustomerMode = useApp((s) => s.setCustomerMode);
+  const applySingleCustomer = useApp((s) => s.applySingleCustomer);
   const signOut = useApp((s) => s.signOut);
   const resetDemo = useApp((s) => s.resetDemo);
   const toasts = useApp((s) => s.toasts);
@@ -55,8 +59,17 @@ export function Console() {
       window.setTimeout(() => dismiss(item.id), 15000);
     }
   }, [toasts, dismiss]);
+  useEffect(() => {
+    void loadDeployment().then((deployment) => {
+      setCustomerMode(deployment.mode);
+      if (deployment.mode === "single") applySingleCustomer(deployment.customerName);
+    });
+  }, [setCustomerMode, applySingleCustomer]);
+  const single = customerMode === "single";
   const customer = customers.find((item) => item.id === customerId) ?? null;
-  const visibleCustomers = customersFor(customers, session?.customerIds);
+  const visibleCustomers = single
+    ? customers.filter((item) => item.id === customerId)
+    : customersFor(customers, session?.customerIds);
   const nav = NAV.filter((item) => item.id !== "users" || session?.role === "admin");
   const page = view === "overview" ? "Alarms" : (NAV.find((item) => item.id === view)?.label ?? "SBCE Control");
 
@@ -78,18 +91,24 @@ export function Console() {
               <LayoutDashboard size={16} />
               Alarms
             </button>
-            <p className="mt-4 px-3 text-[10px] uppercase tracking-wide text-paper/50">Customer</p>
-            <select
-              className="mb-2 min-h-11 rounded-md border border-paper/20 bg-slate px-2 text-sm text-paper"
-              value={customerId}
-              onChange={(e) => selectCustomer(e.target.value)}
-            >
-              {visibleCustomers.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
+            {single ? (
+              <p className="mb-2 px-3 text-sm text-paper">{customer?.name ?? "Customer"}</p>
+            ) : (
+              <>
+                <p className="mt-4 px-3 text-[10px] uppercase tracking-wide text-paper/50">Customer</p>
+                <select
+                  className="mb-2 min-h-11 rounded-md border border-paper/20 bg-slate px-2 text-sm text-paper"
+                  value={customerId}
+                  onChange={(e) => selectCustomer(e.target.value)}
+                >
+                  {visibleCustomers.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
             {nav.map((item) => {
               const Icon = item.icon;
               const active = view === item.id;
@@ -126,7 +145,9 @@ export function Console() {
                 <p className="text-sm font-medium">{page}</p>
                 <p className="text-xs text-muted">
                   {view === "overview"
-                    ? "All customers"
+                    ? single
+                      ? (customer?.name ?? "This customer")
+                      : "All customers"
                     : `${customer?.name ?? "No customer"} · ${customer?.timezone ?? ""}`}
                 </p>
               </div>
@@ -158,17 +179,19 @@ export function Console() {
             </div>
           </header>
           <div className="flex flex-col gap-2 border-b border-line px-2 py-2 md:hidden">
-            <select
-              className="min-h-11 rounded-md border border-line bg-surface px-2 text-sm"
-              value={customerId}
-              onChange={(e) => selectCustomer(e.target.value)}
-            >
-              {visibleCustomers.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
+            {single ? null : (
+              <select
+                className="min-h-11 rounded-md border border-line bg-surface px-2 text-sm"
+                value={customerId}
+                onChange={(e) => selectCustomer(e.target.value)}
+              >
+                {visibleCustomers.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            )}
             <div className="flex gap-2 overflow-x-auto">
               <button
                 onClick={() => setView("overview")}

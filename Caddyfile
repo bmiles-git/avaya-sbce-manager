@@ -3,6 +3,9 @@
 	handle /api/auth-config {
 		reverse_proxy web:8081
 	}
+	handle /api/deployment {
+		reverse_proxy web:8081
+	}
 	handle {
 		reverse_proxy web:8080
 	}

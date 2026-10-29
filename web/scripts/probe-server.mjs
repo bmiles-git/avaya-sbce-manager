@@ -195,6 +195,12 @@ const server = http.createServer(async (req, res) => {
     });
     return;
   }
+  if (req.method === "GET" && req.url === "/api/deployment") {
+    const mode = (process.env.CUSTOMER_MODE || "multiple").trim().toLowerCase() === "single" ? "single" : "multiple";
+    const customerName = (process.env.CUSTOMER_NAME || "").trim();
+    json(res, 200, { mode, customerName });
+    return;
+  }
   if (req.method !== "POST" || (req.url !== "/api/probe" && req.url !== "/api/mail")) {
     json(res, 404, { ok: false, error: "Not found." });
     return;

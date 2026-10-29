@@ -4,7 +4,7 @@ Console for certificate work on Avaya Session Border Controller for Enterprise 1
 
 ## What it does
 
-- Holds customers, sites, and controllers. A high-availability pair is one certificate set: the standby is updated with the active.
+- Holds one customer or many. `CUSTOMER_MODE=multiple` is the default and keeps the customer list. `CUSTOMER_MODE=single` keeps one customer, named by `CUSTOMER_NAME`, and hides the customer picker, add customer, and remove customer.
 - Watches expiration and shows alarms across every customer. The other pages stay on the customer you select.
 - Renews a certificate in one of two ways. An outside CA signs a CSR, usually a public CA and sometimes the customer's own CA, or this console manages the name with Let's Encrypt.
 - Sends the customer a temporary upload link. The link only accepts a certificate that matches the one it is replacing, including the names and the chain. It records whether they opened it, and it can send a reminder.
@@ -32,17 +32,14 @@ flowchart TD
   port -->|443| entra[Microsoft account picker]
   entra --> domain{Email domain matches ENTRA_ALLOWED_DOMAIN?}
   domain -->|No| refuse[Refuse the session]
-  domain -->|Yes| alarms[Alarms for every customer]
+  domain -->|Yes| mode{CUSTOMER_MODE}
   port -->|8443| local[Local username and password]
-  local --> alarms
+  local --> mode
+  mode -->|multiple| alarms[Alarms for every customer]
   alarms --> choose[Select a customer]
-  choose --> devices[Devices]
-  choose --> certs[Certificates]
-  choose --> csrpage[CSR requests]
-  choose --> snaps[Snapshots]
-  choose --> reach[VPN or proxy]
-  choose --> report[Reporting]
-  choose --> audit[Audit]
+  mode -->|single| one[Alarms for the one customer]
+  choose --> pages[Devices, certificates, CSR, snapshots, VPN or proxy, reporting, audit]
+  one --> pages
 ```
 
 ```mermaid
@@ -128,7 +125,7 @@ What you need before step 1:
 
 ## Sample walk
 
-Sign in on port 8443 as `admin` / `harbor-admin`, or use **Reset demo** if this browser already has older data. Each customer is one module:
+Sign in on port 8443 as `admin` / `harbor-admin`, or use **Reset demo** if this browser already has older data. This walk uses `CUSTOMER_MODE=multiple`. Each customer is one module:
 
 | Customer | Open | What you can touch |
 | --- | --- | --- |
@@ -195,6 +192,8 @@ ENTRA_TENANT_ID=
 ENTRA_CLIENT_ID=
 ENTRA_REDIRECT_URI=https://avaya-sbc.aws.yourdomain.com
 ENTRA_ALLOWED_DOMAIN=yourdomain.com
+CUSTOMER_MODE=multiple
+CUSTOMER_NAME=
 SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_USER=
@@ -211,6 +210,8 @@ SMTP_FROM=sbce@example.com
 5. Assign the people who should open the console, or leave assignment open if everyone in that domain should be able to try. The console still refuses an account outside `ENTRA_ALLOWED_DOMAIN`.
 
 A matching account is an administrator of this console. After changing `.env`, run `sudo docker compose up -d` so the container sees the tenant, client ID, and domain. Sign out of any session that was created before this change.
+
+`CUSTOMER_MODE` is `multiple` or `single`. Multiple is the sample walk below: alarms cover every customer, and the sidebar has a customer list. Single is one installation for one customer. Set `CUSTOMER_NAME` to that customer's name. The sidebar shows the name and does not offer a list. Add customer, remove customer, and the per-user customer picker are hidden. Devices, certificates, CSR requests, and reporting are unchanged. Leave `CUSTOMER_NAME` empty in single mode to keep whichever customer is already selected.
 
 `SITE_ADDRESS` is the name of this host. Port 443 and port 8443 both listen on every address the host has. `.env` is not committed. Do not edit `Caddyfile` to put the name in it. The next pull would conflict.
 

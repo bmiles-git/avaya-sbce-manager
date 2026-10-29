@@ -24,6 +24,8 @@ export function UsersView() {
   const [nextPassword, setNextPassword] = useState("");
   const [logoError, setLogoError] = useState<string | null>(null);
   const visible = customersFor(customers, session?.customerIds);
+  const single = useApp((s) => s.customerMode === "single");
+  const customerId = useApp((s) => s.selectedCustomerId);
 
   if (session?.role !== "admin") {
     return <p className="text-sm text-muted">Only an administrator can manage accounts.</p>;
@@ -78,7 +80,13 @@ export function UsersView() {
           className="space-y-3"
           onSubmit={(event) => {
             event.preventDefault();
-            void createUser({ username, name, password, role, customerIds }).then((message) => {
+            void createUser({
+              username,
+              name,
+              password,
+              role,
+              customerIds: single && role === "operator" ? [customerId] : customerIds,
+            }).then((message) => {
               setError(message);
               if (!message) {
                 setUsername("");
@@ -104,16 +112,20 @@ export function UsersView() {
               <option value="admin">Administrator</option>
             </select>
           </Field>
-          <fieldset className="space-y-1">
-            <legend className="text-xs text-muted">Customers</legend>
-            {visible.map((customer) => (
-              <label key={customer.id} className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={customerIds.includes(customer.id)} onChange={() => toggleCustomer(customer.id)} />
-                {customer.name}
-              </label>
-            ))}
-            <p className="text-xs text-muted">An administrator with none selected can see every customer. An operator needs at least one.</p>
-          </fieldset>
+          {single ? (
+            <p className="text-xs text-muted">This installation has one customer. An operator is assigned to that customer.</p>
+          ) : (
+            <fieldset className="space-y-1">
+              <legend className="text-xs text-muted">Customers</legend>
+              {visible.map((customer) => (
+                <label key={customer.id} className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={customerIds.includes(customer.id)} onChange={() => toggleCustomer(customer.id)} />
+                  {customer.name}
+                </label>
+              ))}
+              <p className="text-xs text-muted">An administrator with none selected can see every customer. An operator needs at least one.</p>
+            </fieldset>
+          )}
           {error ? <p className="text-sm text-danger">{error}</p> : null}
           <Button tone="primary" type="submit">
             Create user
@@ -128,7 +140,8 @@ export function UsersView() {
           return (
             <Panel key={user.id} title={user.username} action={<span className="text-xs text-muted">{user.role}</span>}>
               <p className="text-sm">{user.name}</p>
-              <p className="mt-1 text-sm text-muted">{assigned}</p>
+              <p className="mt-1 text-sm text-muted">{single ? "This customer" : assigned}</p>
+              {single ? null : (
               <div className="mt-3 flex flex-wrap gap-2">
                 {visible.map((customer) => {
                   const on = user.customerIds.includes(customer.id);
@@ -146,6 +159,7 @@ export function UsersView() {
                   );
                 })}
               </div>
+              )}
               {passwordFor === user.id ? (
                 <form
                   className="mt-3 flex flex-wrap items-end gap-2"
