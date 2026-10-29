@@ -12,6 +12,8 @@ export function UsersView() {
   const setUserPassword = useApp((s) => s.setUserPassword);
   const updateUser = useApp((s) => s.updateUser);
   const removeUser = useApp((s) => s.removeUser);
+  const logoUrl = useApp((s) => s.logoUrl);
+  const setLogo = useApp((s) => s.setLogo);
   const [username, setUsername] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
@@ -20,6 +22,7 @@ export function UsersView() {
   const [error, setError] = useState<string | null>(null);
   const [passwordFor, setPasswordFor] = useState<string | null>(null);
   const [nextPassword, setNextPassword] = useState("");
+  const [logoError, setLogoError] = useState<string | null>(null);
   const visible = customersFor(customers, session?.customerIds);
 
   if (session?.role !== "admin") {
@@ -31,7 +34,45 @@ export function UsersView() {
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-5">
+    <div className="space-y-4">
+      <Panel title="Logo">
+        <p className="mb-3 text-sm text-muted">This image replaces the name at the top of the console, the sign-in page, and customer upload links.</p>
+        {logoUrl ? <img src={logoUrl} alt="" className="mb-3 h-10 max-w-xs object-contain object-left" /> : null}
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            className="text-sm"
+            type="file"
+            accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (!file) return;
+              if (file.size > 500_000) {
+                setLogoError("Use an image under 500 KB.");
+                return;
+              }
+              const reader = new FileReader();
+              reader.onload = () => {
+                const value = typeof reader.result === "string" ? reader.result : "";
+                if (!value.startsWith("data:image/")) {
+                  setLogoError("That file is not an image.");
+                  return;
+                }
+                setLogoError(null);
+                setLogo(value);
+              };
+              reader.readAsDataURL(file);
+            }}
+          />
+          {logoUrl ? (
+            <Button type="button" tone="ghost" onClick={() => setLogo(null)}>
+              Remove logo
+            </Button>
+          ) : null}
+        </div>
+        {logoError ? <p className="mt-2 text-sm text-danger">{logoError}</p> : null}
+      </Panel>
+      <div className="grid gap-4 lg:grid-cols-5">
       <Panel title="Add a user" className="lg:col-span-2">
         <form
           className="space-y-3"

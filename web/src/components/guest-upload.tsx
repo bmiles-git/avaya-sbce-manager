@@ -4,6 +4,7 @@ import type { CheckResult } from "@/lib/cert-check";
 import { formatDay } from "@/lib/format";
 import { haPeer } from "@/lib/scope";
 import { useApp } from "@/lib/store";
+import { BrandMark } from "@/components/brand";
 import { Button } from "@/components/ui";
 
 function commonName(subject: string) {
@@ -46,7 +47,9 @@ export function GuestUpload({ token }: { token: string }) {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-4 py-12">
-      <p className="mb-8 text-sm font-semibold tracking-tight">SBCE Control</p>
+      <div className="mb-8">
+        <BrandMark />
+      </div>
       {closed ? (
         <section className="rounded-md border border-line bg-surface p-6">
           <h1 className="text-xl font-medium">This link is not usable</h1>

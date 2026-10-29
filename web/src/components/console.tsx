@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useApp } from "@/lib/store";
 import type { ViewId } from "@/lib/types";
+import { BrandMark } from "@/components/brand";
 import { Button, cx } from "@/components/ui";
 import { Overview } from "@/components/view-overview";
 import { Inventory } from "@/components/view-inventory";
@@ -64,7 +65,7 @@ export function Console() {
       <div className="flex min-h-screen">
         <aside className="hidden w-56 shrink-0 flex-col border-r border-paper/10 bg-slate text-paper md:flex">
           <div className="px-4 py-4">
-            <p className="text-sm font-semibold tracking-tight text-paper">SBCE Control</p>
+            <BrandMark tone="paper" />
           </div>
           <nav className="flex flex-1 flex-col gap-1 px-2">
             <button
@@ -118,7 +119,9 @@ export function Console() {
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-surface px-4 py-3">
             <div className="flex items-center gap-3">
-              <p className="text-sm font-semibold md:hidden">SBCE Control</p>
+              <span className="md:hidden">
+                <BrandMark />
+              </span>
               <div>
                 <p className="text-sm font-medium">{page}</p>
                 <p className="text-xs text-muted">

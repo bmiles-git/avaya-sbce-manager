@@ -104,6 +104,8 @@ interface AppState extends DataSlice {
   focusCertId: string | null;
   focusRequestId: string | null;
   toasts: Toast[];
+  logoUrl: string | null;
+  setLogo: (logoUrl: string | null) => void;
   signInLocal: (username: string, password: string) => Promise<string | null>;
   signInEntra: (account: Pick<Session, "name" | "username" | "role">) => void;
   signOut: () => void;
@@ -202,6 +204,8 @@ export const useApp = create<AppState>()(
       focusCertId: null,
       focusRequestId: null,
       toasts: [],
+      logoUrl: null,
+      setLogo: (logoUrl) => set({ logoUrl }),
 
       signInLocal: async (username, password) => {
         const key = username.trim().toLowerCase();
@@ -1039,6 +1043,7 @@ export const useApp = create<AppState>()(
         users: state.users,
         messages: state.messages,
         acks: state.acks,
+        logoUrl: state.logoUrl,
       }),
       merge: (persisted, current) => {
         const saved = (persisted ?? {}) as Partial<AppState>;

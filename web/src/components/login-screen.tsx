@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { entraClient, loadEntraConfig } from "@/lib/entra";
 import { useApp } from "@/lib/store";
+import { BrandMark } from "@/components/brand";
 import { Button, Field, inputClass } from "@/components/ui";
 
 export function LoginScreen() {
@@ -50,7 +51,7 @@ export function LoginScreen() {
   return (
     <main className="grid min-h-screen lg:grid-cols-2">
       <section className="flex flex-col justify-between bg-slate p-8 text-paper lg:border-r lg:border-paper/10">
-        <p className="text-sm font-semibold tracking-tight text-paper">SBCE Control</p>
+        <BrandMark tone="paper" />
         <div className="my-10 max-w-md">
           <h1 className="text-3xl font-semibold tracking-tight">Certificate changes with a way back.</h1>
           <p className="mt-3 text-paper/75">
